@@ -125,3 +125,21 @@ This is a living ADR log. Append future architectural decisions rather than sile
 **Tradeoffs:** Some legitimate large PDFs are rejected, and a matching signature does not guarantee a well-formed or safe PDF. Full structural validation remains the parser's responsibility in a later phase.
 
 **When we should reconsider it:** Reconsider the size when representative documents or measured usage justify a different limit. Reconsider validation depth when parsing, malware scanning, storage, or public threat requirements are introduced.
+
+---
+
+## ADR-008 — Use Decimal values and nullable source facts in invoice schemas
+
+**Decision ID:** ADR-008  
+**Status:** ACCEPTED  
+**Classification:** STANDARD
+
+**Context:** Invoice extraction must represent financial values accurately while acknowledging that real documents frequently omit fields. Binary floating-point values can introduce rounding artifacts, and invented placeholders would misrepresent missing source information.
+
+**Decision:** Represent quantities and monetary values with Python `Decimal`. Make invoice-level source facts nullable, default line items and warnings to independent empty lists, require a non-empty description for every line item, and reject unknown fields.
+
+**Why:** Decimal arithmetic preserves base-10 values used in financial documents. Nullable fields preserve the difference between absent information and fabricated defaults. Required line-item descriptions keep nested objects meaningful, while strict unknown-field handling exposes misspelled or unsupported model output.
+
+**Tradeoffs:** Decimal values require deliberate JSON serialization and can accept valid decimal strings through Pydantic conversion. A fully nullable invoice model can validate even when few facts were extracted, so extraction-quality checks and warnings remain separate responsibilities.
+
+**When we should reconsider it:** Reconsider field requirements after evaluating representative invoices and downstream UI needs. Reconsider decimal precision or currency modeling if arithmetic, multi-currency conversion, or accounting-grade requirements are introduced.

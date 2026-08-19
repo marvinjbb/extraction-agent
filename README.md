@@ -4,7 +4,7 @@ A production-minded AI engineering portfolio project for extracting validated, s
 
 ## Current Status
 
-Phase 1B is complete locally. The FastAPI application accepts and validates one invoice PDF upload. PDF text parsing and document extraction have not been implemented.
+Phase 1C is complete locally. The FastAPI application accepts and validates one invoice PDF upload, and Pydantic models define the future structured invoice output. PDF text parsing and document extraction have not been implemented.
 
 ## Approved MVP
 
@@ -98,3 +98,16 @@ A valid upload currently returns temporary acceptance metadata:
   "status": "accepted"
 }
 ```
+
+## Invoice Schema
+
+`app/schemas.py` defines the future extraction result independently from the current upload response.
+
+An invoice can contain:
+
+- Vendor, invoice number, invoice date, and three-letter uppercase currency code.
+- Subtotal, tax, and total as exact decimal values.
+- Line items with a required description and optional quantity, unit price, and amount.
+- Warnings describing missing or uncertain source information.
+
+Invoice facts are nullable because real documents can omit them. Missing collections default to empty lists. Unknown fields and invalid values are rejected, and no placeholder values are generated.

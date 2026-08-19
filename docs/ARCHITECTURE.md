@@ -2,9 +2,9 @@
 
 ## Current State
 
-The `extraction-agent` repository is a separate Git project with a Python 3.12+ development environment and a minimal FastAPI application. `GET /health` returns `{"status":"ok"}`. `POST /extractions/invoice` accepts one PDF upload, applies bounded byte-level validation, and returns temporary acceptance metadata. Both endpoints are covered by automated tests.
+The `extraction-agent` repository is a separate Git project with a Python 3.12+ development environment and a minimal FastAPI application. `GET /health` returns `{"status":"ok"}`. `POST /extractions/invoice` accepts one PDF upload, applies bounded byte-level validation, and returns temporary acceptance metadata. Pydantic models independently define the future structured invoice output. The implemented layers are covered by automated tests.
 
-PDF text parsing, invoice schemas, LLM integration, OCR, databases, Docker, deployment infrastructure, and the public API route have not been implemented.
+PDF text parsing, LLM integration, OCR, databases, Docker, deployment infrastructure, and the public API route have not been implemented. The upload endpoint does not return the invoice schema yet.
 
 ## Current Upload Boundary
 
@@ -23,6 +23,39 @@ Return temporary acceptance metadata
 ```
 
 The 5 MiB limit is intentionally small for a public portfolio MVP. Checking both the declared media type and the leading PDF signature catches simple mismatches without pretending to fully validate or parse the document. Uploaded content is not persisted.
+
+## Current Schema Boundary
+
+```text
+Future extraction data
+    ↓
+Invoice Pydantic model
+    ├── nullable document facts
+    ├── exact Decimal amounts
+    ├── nested LineItem models
+    ├── warnings
+    └── unknown fields rejected
+    ↓
+Validated Python data / JSON-ready output
+```
+
+The schema is defined before model integration so the future LLM must produce data for an application-owned contract. Pydantic validates types and nested structure, converts supported inputs such as decimal strings, applies defaults, and rejects invalid or unknown fields. It does not decide whether extracted facts are correct.
+
+The intended future flow is:
+
+```text
+PDF
+ ↓
+Upload validation
+ ↓
+Text extraction
+ ↓
+LLM extraction
+ ↓
+Invoice Pydantic schema
+ ↓
+Validated structured JSON
+```
 
 ## Approved Local MVP
 

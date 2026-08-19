@@ -4,11 +4,11 @@ This is the living progress tracker for the Extraction Agent. Update statuses an
 
 ## Current Focus
 
-**Phase 1B — Invoice PDF upload and validation**
+**Phase 1C — API contract and invoice schemas**
 
 **Status:** `COMPLETE`
 
-The API accepts one PDF, enforces media-type, signature, empty-file, and 5 MiB size validation, and returns temporary acceptance metadata. Ruff, automated tests, and live multipart requests have verified the boundary. The next phase must not begin until review.
+Pydantic models define nullable invoice facts, exact decimal values, nested line items, warnings, and strict unknown-field handling. Schema behavior is verified independently from the unchanged upload endpoint. Phase 1D must not begin until review.
 
 ## Foundation — Repository and project documentation
 
@@ -48,7 +48,7 @@ The API accepts one PDF, enforces media-type, signature, empty-file, and 5 MiB s
 
 ## Phase 1C — API contract and invoice schemas
 
-**Status:** `NOT STARTED`
+**Status:** `COMPLETE`
 
 **Goal:** Define the structured invoice response without adding parsing or model calls.
 
