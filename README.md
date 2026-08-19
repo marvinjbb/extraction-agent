@@ -4,7 +4,7 @@ A production-minded AI engineering portfolio project for extracting validated, s
 
 ## Current Status
 
-Phase 1A is complete locally. The repository contains the minimal FastAPI application, a health endpoint, and an initial automated test. Document extraction has not been implemented.
+Phase 1B is complete locally. The FastAPI application accepts and validates one invoice PDF upload. PDF text parsing and document extraction have not been implemented.
 
 ## Approved MVP
 
@@ -71,4 +71,30 @@ Run the checks:
 ```powershell
 python -m ruff check .
 python -m pytest
+```
+
+## Current API
+
+### `GET /health`
+
+Confirms that the API process is available.
+
+### `POST /extractions/invoice`
+
+Accepts one multipart upload in the `file` field. The current validation layer:
+
+- Accepts only `application/pdf` uploads with a `%PDF-` file signature.
+- Rejects empty files.
+- Rejects files larger than 5 MiB (5,242,880 bytes).
+- Reads the upload only for validation; it does not parse or persist the PDF.
+
+A valid upload currently returns temporary acceptance metadata:
+
+```json
+{
+  "filename": "invoice.pdf",
+  "content_type": "application/pdf",
+  "size_bytes": 12345,
+  "status": "accepted"
+}
 ```

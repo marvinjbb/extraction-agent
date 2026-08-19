@@ -2,9 +2,27 @@
 
 ## Current State
 
-The `extraction-agent` repository is a separate Git project with a Python 3.12+ development environment and a minimal FastAPI application. `GET /health` returns `{"status":"ok"}` and is covered by an automated test.
+The `extraction-agent` repository is a separate Git project with a Python 3.12+ development environment and a minimal FastAPI application. `GET /health` returns `{"status":"ok"}`. `POST /extractions/invoice` accepts one PDF upload, applies bounded byte-level validation, and returns temporary acceptance metadata. Both endpoints are covered by automated tests.
 
-PDF uploads, parsing, invoice schemas, LLM integration, OCR, databases, Docker, deployment infrastructure, and the public API route have not been implemented.
+PDF text parsing, invoice schemas, LLM integration, OCR, databases, Docker, deployment infrastructure, and the public API route have not been implemented.
+
+## Current Upload Boundary
+
+```text
+One multipart file
+    ↓
+Declared media type is application/pdf
+    ↓
+Read at most 5 MiB + 1 byte
+    ↓
+Reject empty or oversized content
+    ↓
+Verify %PDF- signature
+    ↓
+Return temporary acceptance metadata
+```
+
+The 5 MiB limit is intentionally small for a public portfolio MVP. Checking both the declared media type and the leading PDF signature catches simple mismatches without pretending to fully validate or parse the document. Uploaded content is not persisted.
 
 ## Approved Local MVP
 

@@ -4,11 +4,11 @@ This is the living progress tracker for the Extraction Agent. Update statuses an
 
 ## Current Focus
 
-**Phase 1A — Python project and local development foundation**
+**Phase 1B — Invoice PDF upload and validation**
 
 **Status:** `COMPLETE`
 
-The minimal FastAPI project, isolated Python environment, health endpoint, lint configuration, and initial test have been created and verified locally. Phase 1B must not begin until this phase is reviewed.
+The API accepts one PDF, enforces media-type, signature, empty-file, and 5 MiB size validation, and returns temporary acceptance metadata. Ruff, automated tests, and live multipart requests have verified the boundary. The next phase must not begin until review.
 
 ## Foundation — Repository and project documentation
 
@@ -34,31 +34,43 @@ The minimal FastAPI project, isolated Python environment, health endpoint, lint 
 
 **Completion criteria:** A new developer can install dependencies, run the minimal service and tests locally, and no secret is committed.
 
-## Phase 1B — API contract and invoice schemas
+## Phase 1B — Invoice PDF upload and validation
+
+**Status:** `COMPLETE`
+
+**Goal:** Safely accept one invoice PDF without parsing or extracting its contents.
+
+**Major deliverables:** Multipart upload endpoint, 5 MiB size limit, media-type and PDF-signature checks, empty-file rejection, temporary acceptance response, and validation tests.
+
+**Understanding required:** Multipart uploads, MIME declarations versus content signatures, bounded reads, HTTP error status codes, and upload validation versus document parsing.
+
+**Completion criteria:** A valid PDF is accepted; non-PDF, empty, oversized, and signature-mismatched files fail clearly; Ruff, tests, and a live request pass.
+
+## Phase 1C — API contract and invoice schemas
 
 **Status:** `NOT STARTED`
 
-**Goal:** Define the upload boundary and validated structured invoice response.
+**Goal:** Define the structured invoice response without adding parsing or model calls.
 
-**Major deliverables:** Request constraints, response/error models, invoice and line-item schemas, examples, and schema tests.
+**Major deliverables:** Response/error models, invoice and line-item schemas, examples, and schema tests.
 
 **Understanding required:** API contracts, structured outputs, schemas versus validation, required versus nullable fields, and why uncalibrated confidence is excluded.
 
-**Completion criteria:** Representative valid and invalid payloads behave as documented and the contract is ready for workflow implementation.
+**Completion criteria:** Representative valid and invalid structured payloads behave as documented and the contract is ready for workflow implementation.
 
-## Phase 1C — PDF upload, validation, and text extraction
+## Phase 1D — PDF text extraction
 
 **Status:** `NOT STARTED`
 
-**Goal:** Safely accept a text-based PDF and extract usable embedded text.
+**Goal:** Extract usable embedded text from accepted text-based PDFs.
 
-**Major deliverables:** Upload endpoint, size/type validation, PDF parser boundary, empty/scanned-document detection, safe errors, and parser tests.
+**Major deliverables:** PDF parser decision, parser boundary, empty/scanned-document detection, safe errors, and parser tests.
 
-**Understanding required:** Multipart uploads, MIME claims versus file validation, in-memory/file lifecycle, parsing versus OCR, and malformed-document failures.
+**Understanding required:** Document parsing versus OCR, PDF structure, in-memory file lifecycle, malformed-document failures, and parser limitations.
 
-**Completion criteria:** Supported PDFs yield text; unsupported, malformed, empty, oversized, and scanned PDFs fail clearly; behavior is tested.
+**Completion criteria:** Supported PDFs yield text; malformed, text-empty, and scanned PDFs fail clearly; behavior is tested.
 
-## Phase 1D — LLM structured invoice extraction
+## Phase 1E — LLM structured invoice extraction
 
 **Status:** `NOT STARTED`
 
@@ -70,7 +82,7 @@ The minimal FastAPI project, isolated Python environment, health endpoint, lint 
 
 **Completion criteria:** Representative text-based invoices produce schema-valid results; failures do not expose secrets or fabricate success; quality limitations are documented.
 
-## Phase 1E — Complete and verify the local MVP
+## Phase 1F — Complete and verify the local MVP
 
 **Status:** `NOT STARTED`
 

@@ -107,3 +107,21 @@ This is a living ADR log. Append future architectural decisions rather than sile
 **Tradeoffs:** Consumers receive less convenient ranking information and must handle missing or warned fields explicitly.
 
 **When we should reconsider it:** After a labeled evaluation dataset and a tested calibration method demonstrate that confidence values predict extraction correctness usefully.
+
+---
+
+## ADR-007 — Limit MVP uploads to 5 MiB and verify the PDF signature
+
+**Decision ID:** ADR-007  
+**Status:** ACCEPTED  
+**Classification:** CUSTOM
+
+**Context:** The public portfolio MVP needs a clear upload boundary before document parsing exists. A declared media type alone can be incorrect or trivially spoofed, while unbounded reads create unnecessary memory and cost risk.
+
+**Decision:** Accept one `application/pdf` upload no larger than 5 MiB, read at most the limit plus one byte, reject empty content, and require the content to begin with the `%PDF-` signature.
+
+**Why:** Five MiB is sufficient for representative text-based invoice PDFs while keeping local and future public requests bounded. The signature check catches basic media-type mismatches without claiming to fully parse or prove the document is safe.
+
+**Tradeoffs:** Some legitimate large PDFs are rejected, and a matching signature does not guarantee a well-formed or safe PDF. Full structural validation remains the parser's responsibility in a later phase.
+
+**When we should reconsider it:** Reconsider the size when representative documents or measured usage justify a different limit. Reconsider validation depth when parsing, malware scanning, storage, or public threat requirements are introduced.
