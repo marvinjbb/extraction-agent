@@ -1,0 +1,109 @@
+# Extraction Agent Architecture Decision Record Log
+
+This is a living ADR log. Append future architectural decisions rather than silently replacing earlier decisions. If a decision changes, mark the earlier ADR `SUPERSEDED` and reference its replacement.
+
+## ADR-001 — Maintain the Extraction Agent in a separate repository
+
+**Decision ID:** ADR-001  
+**Status:** ACCEPTED  
+**Classification:** CUSTOM
+
+**Context:** The portfolio UI and each agent are intended to be independently understandable and deployable projects.
+
+**Decision:** Keep backend extraction logic in `extraction-agent`; keep the React demo and portfolio presentation in `marvinjb.dev`.
+
+**Why:** This creates a focused history, dependency boundary, README, test workflow, and deployment unit for the project.
+
+**Tradeoffs:** Cross-repository API changes require coordination, and some shared conventions may be duplicated.
+
+**When we should reconsider it:** If substantial shared code or atomic cross-project releases make the repository split demonstrably harder to maintain than a monorepo.
+
+---
+
+## ADR-002 — Start with text-based invoice PDFs only
+
+**Decision ID:** ADR-002  
+**Status:** ACCEPTED  
+**Classification:** CUSTOM
+
+**Context:** Supporting scans, images, OCR, and many document types would combine multiple uncertain problems before the basic workflow is proven.
+
+**Decision:** The first MVP accepts one text-based invoice PDF per request. Image uploads, OCR, and other document types are deferred.
+
+**Why:** It isolates parsing and structured extraction, shortens feedback loops, and creates a useful demonstrable workflow.
+
+**Tradeoffs:** Scanned invoices and images are rejected initially, so the MVP covers only part of the eventual user experience.
+
+**When we should reconsider it:** After the text-based PDF workflow is reliable and representative scanned-document requirements and evaluation samples are defined.
+
+---
+
+## ADR-003 — Prefer Python and FastAPI for the backend
+
+**Decision ID:** ADR-003  
+**Status:** ACCEPTED  
+**Classification:** CUSTOM
+
+**Context:** The service needs typed HTTP APIs, validation, async support, generated API documentation, and access to Python AI/document tooling.
+
+**Decision:** Use Python with FastAPI unless a concrete project constraint makes another backend materially better.
+
+**Why:** It aligns with the platform architecture and supports a clear, testable API with a small conceptual surface.
+
+**Tradeoffs:** Python dependency and async behavior require deliberate management; FastAPI does not itself solve extraction quality, deployment, persistence, or security.
+
+**When we should reconsider it:** If measured performance, protocol, dependency, provider, or operating constraints demonstrate a better runtime choice.
+
+---
+
+## ADR-004 — Process MVP uploads ephemerally
+
+**Decision ID:** ADR-004  
+**Status:** ACCEPTED  
+**Classification:** STANDARD
+
+**Context:** The MVP does not require user accounts, document history, asynchronous jobs, or later retrieval of uploaded files.
+
+**Decision:** Process each uploaded PDF within the request lifecycle and do not persist it after processing.
+
+**Why:** Avoiding unnecessary storage reduces privacy exposure, data lifecycle obligations, infrastructure, and failure modes.
+
+**Tradeoffs:** Requests cannot resume after failure, users cannot retrieve history, and long-running work remains bounded by request timeouts.
+
+**When we should reconsider it:** When a defined requirement needs job resumption, audit history, user retrieval, asynchronous processing, or durable artifacts.
+
+---
+
+## ADR-005 — Do not add databases or retrieval infrastructure to the MVP
+
+**Decision ID:** ADR-005  
+**Status:** ACCEPTED  
+**Classification:** STANDARD
+
+**Context:** The initial workflow transforms one uploaded document into one immediate response and has no demonstrated persistence, caching, queueing, or semantic retrieval requirement.
+
+**Decision:** Do not add PostgreSQL, Redis, a vector database, object storage, RAG, MCP, or a background queue to the first MVP.
+
+**Why:** Requirement-driven infrastructure keeps the service understandable and avoids cost and operational complexity without user value.
+
+**Tradeoffs:** A later requirement may require adding a service and migrating the workflow rather than relying on a prebuilt general-purpose stack.
+
+**When we should reconsider it:** When a concrete data lifecycle, caching, queue, session, rate-limit, file persistence, or semantic retrieval requirement appears.
+
+---
+
+## ADR-006 — Return validated structured data without an invented confidence score
+
+**Decision ID:** ADR-006  
+**Status:** ACCEPTED  
+**Classification:** STANDARD
+
+**Context:** An LLM-generated numeric confidence value can appear authoritative without being calibrated against measured extraction accuracy.
+
+**Decision:** Return typed invoice fields with nullable values and useful warnings where appropriate. Do not expose a numeric confidence score until a defensible evaluation and calibration method exists.
+
+**Why:** Schema validation can confirm shape and types, while warnings can communicate uncertainty without presenting unsupported precision.
+
+**Tradeoffs:** Consumers receive less convenient ranking information and must handle missing or warned fields explicitly.
+
+**When we should reconsider it:** After a labeled evaluation dataset and a tested calibration method demonstrate that confidence values predict extraction correctness usefully.
