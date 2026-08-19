@@ -2,7 +2,9 @@
 
 ## Current State
 
-The `extraction-agent` repository has been established as a separate local Git project. It currently contains documentation only. FastAPI, PDF parsing, schemas, LLM integration, Docker, deployment infrastructure, and the public API route have not been implemented.
+The `extraction-agent` repository is a separate Git project with a Python 3.12+ development environment and a minimal FastAPI application. `GET /health` returns `{"status":"ok"}` and is covered by an automated test.
+
+PDF uploads, parsing, invoice schemas, LLM integration, OCR, databases, Docker, deployment infrastructure, and the public API route have not been implemented.
 
 ## Approved Local MVP
 
@@ -67,4 +69,3 @@ React result display
 The React frontend owns file selection, controls, progress, result rendering, and user-facing errors. This repository owns validation, parsing, model calls, schemas, extraction logic, backend errors, and backend telemetry. The integration boundary is a versioned, documented HTTPS API contract.
 
 Before public deployment, the service should have reasonable upload limits, timeouts, CORS policy, secret handling, structured logs, a health endpoint, safe errors, and justified abuse/cost controls. Docker, Nginx, the VPS, and `api.marvinjb.dev` remain target-state components until their roadmap phases are completed.
-

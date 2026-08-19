@@ -4,7 +4,7 @@ A production-minded AI engineering portfolio project for extracting validated, s
 
 ## Current Status
 
-Project foundation only. The repository contains governing instructions and planning documents; no application code has been implemented.
+Phase 1A is complete locally. The repository contains the minimal FastAPI application, a health endpoint, and an initial automated test. Document extraction has not been implemented.
 
 ## Approved MVP
 
@@ -35,3 +35,40 @@ The future React interface will live in the separate `marvinjb.dev` portfolio re
 
 Setup, API, testing, deployment, security, and observability instructions will be added as those capabilities are actually designed and implemented.
 
+## Local Development
+
+Requirements:
+
+- Python 3.12 or newer
+
+Create and activate a virtual environment in PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+Install the application and development dependencies:
+
+```powershell
+python -m pip install -e ".[dev]"
+```
+
+Start the local API:
+
+```powershell
+python -m uvicorn app.main:app --reload
+```
+
+Then open `http://127.0.0.1:8000/health`. The expected response is:
+
+```json
+{"status":"ok"}
+```
+
+Run the checks:
+
+```powershell
+python -m ruff check .
+python -m pytest
+```

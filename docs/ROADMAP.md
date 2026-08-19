@@ -4,15 +4,15 @@ This is the living progress tracker for the Extraction Agent. Update statuses an
 
 ## Current Focus
 
-**Foundation — Repository and project documentation**
+**Phase 1A — Python project and local development foundation**
 
-**Status:** `IN PROGRESS`
+**Status:** `COMPLETE`
 
-The local repository and governing documents are being prepared for review. No application implementation has started.
+The minimal FastAPI project, isolated Python environment, health endpoint, lint configuration, and initial test have been created and verified locally. Phase 1B must not begin until this phase is reviewed.
 
 ## Foundation — Repository and project documentation
 
-**Status:** `IN PROGRESS`
+**Status:** `COMPLETE`
 
 **Goal:** Establish an independent repository with clear scope, architecture, decisions, roadmap, and recruiter-facing context.
 
@@ -24,7 +24,7 @@ The local repository and governing documents are being prepared for review. No a
 
 ## Phase 1A — Python project and local development foundation
 
-**Status:** `NOT STARTED`
+**Status:** `COMPLETE`
 
 **Goal:** Establish the smallest understandable Python/FastAPI development environment without extraction logic.
 
@@ -87,4 +87,3 @@ The local repository and governing documents are being prepared for review. No a
 **Status:** `NOT STARTED`
 
 After local MVP approval, work proceeds through portfolio UI integration, Dockerization, VPS deployment, Nginx/API routing, public integration, and proportionate production hardening in alignment with the master `marvinjb.dev` roadmap. These phases must not be pulled forward without approval.
-
