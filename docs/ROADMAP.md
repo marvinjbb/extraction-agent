@@ -4,11 +4,11 @@ This is the living progress tracker for the Extraction Agent. Update statuses an
 
 ## Current Focus
 
-**Platform Phase 3.6 — Image and scanned invoice support**
+**Platform Phase 4 — Dockerize Extraction Agent**
 
 **Status:** `COMPLETE`
 
-The hybrid text-first and vision-fallback workflow supports text PDFs, scanned PDFs, JPG/JPEG, and PNG invoices while preserving one `Invoice` schema and the existing query workflow. Automated tests cannot spend API money. Containerization and deployment remain later approved phases.
+The unchanged backend is packaged in a locally built and verified non-root container. Health, text extraction, vision extraction, and Ask This Invoice pass through the container. VPS deployment remains a later phase.
 
 ## Foundation — Repository and project documentation
 
@@ -122,8 +122,14 @@ The backend accepts a validated `Invoice` plus one bounded question, constructs 
 
 Text PDFs retain the `pypdf` path. PDFs without embedded text fall back to bounded page rendering and vision extraction; JPG/JPEG and PNG uploads enter the same vision boundary after safe decoding and normalization. Every route ends at the existing `Invoice` Pydantic schema, and Ask This Invoice remains unchanged. Tests use fakes; one controlled provider verification covers the new vision path.
 
+## Platform Phase 4 — Dockerize Extraction Agent
+
+**Status:** `COMPLETE`
+
+The multi-stage Dockerfile builds runtime wheels separately, installs only application dependencies into a pinned Python 3.12 slim runtime, and runs Uvicorn as an unprivileged user on `0.0.0.0:8000`. `.dockerignore` excludes secrets and development artifacts. The 125.7 MB image is healthy and locally verified for text PDF extraction, image vision extraction, and invoice querying. No VPS, proxy, registry, or CI/CD configuration is included.
+
 ## Later platform phases
 
 **Status:** `NOT STARTED`
 
-After local integration approval, work proceeds through Dockerization, VPS deployment, Nginx/API routing, public integration, and proportionate production hardening in alignment with the master `marvinjb.dev` roadmap. These phases must not be pulled forward without approval.
+After Dockerization, work proceeds through VPS deployment, Nginx/API routing, public integration, and proportionate production hardening in alignment with the master `marvinjb.dev` roadmap. These phases must not be pulled forward without approval.

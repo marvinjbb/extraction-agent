@@ -241,3 +241,23 @@ This is a living ADR log. Append future architectural decisions rather than sile
 **Tradeoffs:** The service gains two image-processing dependencies, vision latency and cost, and a larger validation/test matrix. Pydantic proves structure rather than visual accuracy. Mixed-content PDFs with some embedded text remain on the text path, and the current limits may reject legitimate large or long invoices.
 
 **When we should reconsider it:** Reconsider local OCR when privacy, offline processing, provider portability, or measured cost justifies its operational burden. Reconsider the routing heuristic and limits after representative mixed PDFs, large images, or multi-page scans demonstrate a concrete need.
+
+---
+
+## ADR-014 — Package the backend in a pinned multi-stage Python image
+
+**Decision ID:** ADR-014
+
+**Status:** ACCEPTED
+
+**Classification:** STANDARD
+
+**Context:** The working backend must move from a developer-specific Python environment to the later Ubuntu VPS without changing its application behavior or placing development tools and secrets in the runtime artifact.
+
+**Decision:** Build with a digest-pinned Python 3.12 slim base in two stages. Build the application and runtime dependency wheels in the first stage; install only those wheels in the runtime stage. Run Uvicorn as a non-root user on `0.0.0.0:8000`, inject configuration at container start, exclude secret and development files from the build context, and use `/health` for the Docker health check.
+
+**Why:** The design matches the project's Python requirement, reduces the final image and attack surface, creates a repeatable deployment unit, preserves backend-only secrets, and verifies real HTTP readiness without adding a utility package solely for health checks.
+
+**Tradeoffs:** The image is still about 126 MB because PyMuPDF and Pillow contain native document/image libraries. Digest pinning requires deliberate base-image updates, and application dependency versions remain resolved at build time until a lock strategy is introduced. One Uvicorn process is appropriate for the current portfolio workload but is not an automatic high-availability design.
+
+**When we should reconsider it:** Reconsider the base digest during security/runtime updates, add dependency locking when reproducibility requires it, and reconsider process count or image architecture after measured VPS load and memory limits are known. Add operating-system packages only if a supported platform lacks compatible wheels or future document capabilities require external binaries.

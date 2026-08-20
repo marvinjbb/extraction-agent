@@ -4,7 +4,26 @@
 
 The `extraction-agent` repository is a separate Git project with a complete local MVP on Python 3.12+ and FastAPI. `GET /health` returns `{"status":"ok"}`. `POST /extractions/invoice` accepts one PDF, JPG/JPEG, or PNG invoice under a 5 MiB limit. Text PDFs use `pypdf`; scanned PDFs and images use a bounded OpenAI vision path. Both paths validate against and return the same Pydantic `Invoice` model. The separate `marvinjb.dev` React demo calls this endpoint locally, and automated tests cover both routes without provider calls.
 
-Local OCR, databases, Docker, deployment infrastructure, and the public API route have not been implemented.
+Local OCR, databases, VPS infrastructure, Nginx, and the public API route have not been implemented. Phase 4 adds a locally verified Docker image; it has not been published or deployed.
+
+## Current Container Boundary
+
+```text
+Docker build context
+    ↓  excludes .env, tests, caches, docs, and local artifacts
+Python 3.12 slim builder
+    ↓  builds application + runtime dependency wheels
+Python 3.12 slim runtime
+    ↓  installs runtime wheels only
+non-root app user
+    ↓
+Uvicorn on 0.0.0.0:8000
+    ├── GET /health (container health check)
+    ├── POST /extractions/invoice
+    └── POST /extractions/invoice/query
+```
+
+The base image is pinned by digest for repeatable builds. Configuration enters only when the container starts; `OPENAI_API_KEY` is neither a build argument nor part of the build context. The standard-library health check verifies process and HTTP readiness without adding `curl`. Pillow and PyMuPDF use compatible manylinux wheels, so the current image needs no added Debian packages.
 
 ## Current Hybrid Extraction Boundary
 
@@ -186,4 +205,4 @@ React result display
 
 The React frontend owns file selection, controls, progress, result rendering, and user-facing errors. This repository owns validation, parsing, model calls, schemas, extraction logic, backend errors, and backend telemetry. The integration boundary is a versioned, documented HTTPS API contract.
 
-Before public deployment, the service should have reasonable upload limits, timeouts, CORS policy, secret handling, structured logs, a health endpoint, safe errors, and justified abuse/cost controls. Docker, Nginx, the VPS, and `api.marvinjb.dev` remain target-state components until their roadmap phases are completed.
+Before public deployment, the service should have reasonable upload limits, timeouts, CORS policy, secret handling, structured logs, a health endpoint, safe errors, and justified abuse/cost controls. The Docker image now exists locally; Nginx, the VPS, and `api.marvinjb.dev` remain target-state components until their roadmap phases are completed.

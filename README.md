@@ -8,6 +8,8 @@ Phase 3.6 extends the complete local MVP to text PDFs, scanned/image-only PDFs, 
 
 Phase 3.5 adds stateless **Ask This Invoice** queries. `POST /extractions/invoice/query` accepts one question plus the existing `Invoice` JSON and returns `{"answer":"..."}`. It never receives the original PDF, previous messages, frontend prompts, provider settings, or credentials.
 
+Phase 4 packages the unchanged backend as a non-root Docker container based on Python 3.12 slim. The image contains runtime dependencies only, exposes port 8000, reads configuration at container start, and includes a lightweight `/health` check. VPS deployment has not started.
+
 ## Approved MVP
 
 The first local MVP will accept one text-based invoice PDF, extract its text, use an LLM to produce structured invoice fields, validate the output, and return JSON.
@@ -116,6 +118,34 @@ python -m pip check
 ```
 
 Tests use dependency-injected fakes and do not require `OPENAI_API_KEY` or call the real OpenAI API.
+
+## Docker
+
+Docker packages the Python runtime, application code, and exact build-time dependencies into an image. A container is a running instance of that image. This removes laptop-specific Python setup from the deployment boundary: the same tested image can later run on the Ubuntu VPS.
+
+Build the image:
+
+```powershell
+docker build --tag extraction-agent:phase4 .
+```
+
+Run it with the existing ignored backend environment file:
+
+```powershell
+docker run --detach --name extraction-agent --env-file .env --publish 8000:8000 extraction-agent:phase4
+```
+
+`--publish 8000:8000` maps host port 8000 to the container's port 8000. Uvicorn listens on `0.0.0.0` inside the container so Docker can forward traffic to it. `--env-file .env` supplies `OPENAI_API_KEY`, model, timeout, and CORS settings at runtime; `.env` is excluded from the build context and never becomes an image layer.
+
+Verify and stop the local container:
+
+```powershell
+curl.exe http://127.0.0.1:8000/health
+docker stop extraction-agent
+docker rm extraction-agent
+```
+
+Pillow and PyMuPDF install from Linux wheels on the pinned Debian-based Python image and require no additional operating-system packages for the current JPEG, PNG, and PDF workflows. Re-evaluate this if a future platform lacks compatible wheels or new document features require external binaries.
 
 ## Current API
 
@@ -238,4 +268,5 @@ Errors use FastAPI's `{"detail":"..."}` shape.
 - Schema-valid output can still contain extraction mistakes or conservative omissions.
 - Ambiguous labels may be returned as null with warnings rather than inferred.
 - Files are processed ephemerally; there is no history, persistence, or retry queue.
-- The local MVP has no authentication, public-demo rate limiting, Docker, or deployment configuration yet.
+- The image is built locally but has not been published to a registry or deployed to a VPS.
+- The local MVP has no authentication, public-demo rate limiting, Nginx, or production deployment configuration yet.
