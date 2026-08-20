@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.llm_extraction import (
     InvalidLLMOutputError,
+    LLMConfigurationError,
     LLMProviderError,
     LLMTimeoutError,
     get_invoice_extractor,
@@ -89,6 +90,11 @@ def test_valid_pdf_returns_structured_invoice(
 @pytest.mark.parametrize(
     ("error", "expected_status", "expected_detail"),
     [
+        (
+            LLMConfigurationError("provider is not configured"),
+            503,
+            "provider is not configured",
+        ),
         (LLMTimeoutError("provider timed out"), 504, "provider timed out"),
         (LLMProviderError("provider failed"), 502, "provider failed"),
         (InvalidLLMOutputError("invalid output"), 502, "invalid output"),

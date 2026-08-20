@@ -4,11 +4,11 @@ This is the living progress tracker for the Extraction Agent. Update statuses an
 
 ## Current Focus
 
-**Phase 1E — LLM structured invoice extraction**
+**Phase 1F — Complete and verify the local MVP**
 
 **Status:** `COMPLETE`
 
-Extracted text now passes through an isolated OpenAI Structured Outputs adapter and the application-owned Pydantic `Invoice` contract. Provider failures are mapped to clear application errors, automated tests use fakes, and one controlled live request verified the real integration. Phase 1F must not begin until review.
+The complete local pipeline and its important failure paths are verified. Documentation now supports a fresh clone-to-request workflow, automated tests cannot spend API money, and controlled live requests cover complete and sparse invoices. The local Extraction Agent MVP is complete; UI, containerization, and deployment remain later approved phases.
 
 ## Foundation — Repository and project documentation
 
@@ -86,7 +86,7 @@ Extracted text now passes through an isolated OpenAI Structured Outputs adapter 
 
 ## Phase 1F — Complete and verify the local MVP
 
-**Status:** `NOT STARTED`
+**Status:** `COMPLETE`
 
 **Goal:** Prove the complete local request-to-response workflow.
 
@@ -95,6 +95,14 @@ Extracted text now passes through an isolated OpenAI Structured Outputs adapter 
 **Understanding required:** How a request moves through every backend layer, where failures occur, how tests isolate those layers, and what remains outside the MVP.
 
 **Completion criteria:** The service starts locally, processes representative text-based invoice PDFs into validated JSON, rejects expected invalid inputs, and passes its documented tests.
+
+**Completion evidence:** Ruff, 35 deterministic automated tests, and dependency integrity checks pass. The suite covers three representative PDF workflows and all defined validation, parsing, configuration, provider, timeout, and structured-output failures. Two controlled real end-to-end requests returned HTTP 200 and schema-valid JSON. Known parser and model-quality limitations are documented.
+
+## Phase 1 — Local Extraction Agent MVP
+
+**Status:** `COMPLETE`
+
+Phases 1A through 1F are complete. The repository now provides the approved backend-only local MVP: one text-based invoice PDF enters an ephemeral validated pipeline and returns an application-validated structured invoice response. No later platform infrastructure has been pulled forward.
 
 ## Later platform phases
 

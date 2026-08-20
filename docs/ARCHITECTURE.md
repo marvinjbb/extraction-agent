@@ -2,7 +2,7 @@
 
 ## Current State
 
-The `extraction-agent` repository is a separate Git project with a Python 3.12+ FastAPI application. `GET /health` returns `{"status":"ok"}`. `POST /extractions/invoice` accepts one PDF upload, applies bounded byte-level validation, extracts embedded text page by page with `pypdf`, requests schema-constrained invoice facts through an isolated OpenAI adapter, validates them with Pydantic, and returns structured JSON. The implemented layers are covered by automated tests and one controlled live provider check.
+The `extraction-agent` repository is a separate Git project with a complete narrow local MVP on Python 3.12+ and FastAPI. `GET /health` returns `{"status":"ok"}`. `POST /extractions/invoice` accepts one PDF upload, applies bounded byte-level validation, extracts embedded text page by page with `pypdf`, requests schema-constrained invoice facts through an isolated OpenAI adapter, validates them with Pydantic, and returns structured JSON. Automated tests cover representative workflows and expected failures without provider calls; controlled live tests verify complete and sparse invoices against the real provider.
 
 OCR, databases, Docker, deployment infrastructure, and the public API route have not been implemented.
 
@@ -63,7 +63,7 @@ Validated Python data / JSON-ready output
 
 The provider adapter is kept outside the route and returns the application-owned `Invoice` contract. OpenAI Structured Outputs constrains generation to that shape, while Pydantic remains the final local validation boundary. It validates types and nested structure, converts supported inputs such as decimal strings, applies defaults, and rejects invalid or unknown fields. Neither schema compliance nor type validation proves that extracted facts are correct.
 
-Credentials, the model name, and the provider timeout come from environment variables. The default model is `gpt-5.4-nano`, selected for low-cost extraction. Tests inject fakes at the `InvoiceExtractor` boundary and never require a key or make paid requests. Provider timeouts, API failures, missing configuration, and invalid structured results map to explicit application errors.
+Credentials, the model name, and the provider timeout come from environment variables. `.env` is local and ignored; `.env.example` contains placeholders only. The default model is `gpt-5.4-nano`, selected for low-cost extraction. Tests inject fakes at the `InvoiceExtractor` boundary and never require a key or make paid requests. Provider timeouts, API failures, missing configuration, and invalid structured results map to explicit application errors.
 
 The implemented local flow is:
 
@@ -118,6 +118,12 @@ The layers should remain distinct:
 - **Validation:** Proves whether input or generated output satisfies the applicable rules.
 
 The MVP does not require persistent storage: the file can be processed within the request lifecycle and discarded. It also does not require PostgreSQL, Redis, a vector database, RAG, MCP, or a background queue.
+
+## Verified Local Behavior and Limits
+
+The local suite verifies complete, sparse, and multi-page text-based invoices through the API boundary. It also verifies unsupported, empty, oversized, malformed, and text-empty files plus missing provider configuration, provider timeout/failure, and invalid structured output. Live checks verified that the real provider returns schema-valid data for both a fully populated invoice and a sparse invoice with null fields and warnings.
+
+Reliability here means supported requests follow a deterministic, validated pipeline and known failures are explicit. It does not mean extraction accuracy is proven for arbitrary invoice layouts. PDF reading order, tables, ambiguous labels, model nondeterminism, and factual mistakes remain evaluation concerns. A representative labeled evaluation set is a later quality improvement, not hidden infrastructure for this MVP.
 
 ## Target Production Integration
 

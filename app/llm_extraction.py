@@ -2,7 +2,7 @@ import os
 from typing import Protocol
 
 from dotenv import load_dotenv
-from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
+from openai import APITimeoutError, AsyncOpenAI, OpenAIError
 from pydantic import ValidationError
 
 from app.schemas import Invoice
@@ -77,7 +77,11 @@ class OpenAIInvoiceExtractor:
             )
         except APITimeoutError as exc:
             raise LLMTimeoutError("The invoice extraction provider timed out.") from exc
-        except (APIConnectionError, APIStatusError) as exc:
+        except ValidationError as exc:
+            raise InvalidLLMOutputError(
+                "The invoice extraction provider returned an invalid structured result."
+            ) from exc
+        except OpenAIError as exc:
             raise LLMProviderError(
                 "The invoice extraction provider could not complete the request."
             ) from exc

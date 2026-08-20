@@ -5,9 +5,11 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from openai import APIConnectionError, APITimeoutError
+from pydantic import ValidationError
 
 from app.llm_extraction import (
     InvalidLLMOutputError,
+    LLMConfigurationError,
     LLMProviderError,
     LLMTimeoutError,
     OpenAIInvoiceExtractor,
@@ -58,6 +60,36 @@ def test_openai_adapter_rejects_invalid_structured_output() -> None:
     )
 
     with pytest.raises(InvalidLLMOutputError, match="invalid structured result"):
+        asyncio.run(extractor.extract("invoice text"))
+
+
+def test_openai_adapter_maps_sdk_validation_failure() -> None:
+    client = build_client(None)
+    client.responses.parse.side_effect = ValidationError.from_exception_data(
+        "Invoice",
+        [
+            {
+                "type": "string_pattern_mismatch",
+                "loc": ("currency",),
+                "input": "dollars",
+                "ctx": {"pattern": "^[A-Z]{3}$"},
+            }
+        ],
+    )
+    extractor = OpenAIInvoiceExtractor(client=client)
+
+    with pytest.raises(InvalidLLMOutputError, match="invalid structured result"):
+        asyncio.run(extractor.extract("invoice text"))
+
+
+def test_openai_adapter_rejects_missing_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr("app.llm_extraction.load_dotenv", lambda: None)
+    extractor = OpenAIInvoiceExtractor()
+
+    with pytest.raises(LLMConfigurationError, match="not configured"):
         asyncio.run(extractor.extract("invoice text"))
 
 

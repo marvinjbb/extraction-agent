@@ -4,7 +4,7 @@ A production-minded AI engineering portfolio project for extracting validated, s
 
 ## Current Status
 
-Phase 1E is complete locally. The FastAPI application validates one invoice PDF upload, extracts embedded text page by page, asks OpenAI for schema-constrained invoice facts, validates the result with the application-owned Pydantic model, and returns structured JSON. Automated tests replace the provider with fakes; one controlled live request has verified the real integration.
+Phase 1 is complete locally. The narrow MVP validates one invoice PDF upload, extracts embedded text page by page, asks OpenAI for schema-constrained invoice facts, validates the result with the application-owned Pydantic model, and returns structured JSON. Automated tests replace the provider with fakes; controlled live requests have verified complete and sparse invoices through the real integration.
 
 ## Approved MVP
 
@@ -39,13 +39,30 @@ Setup, API, testing, deployment, security, and observability instructions will b
 
 Requirements:
 
+- Git
 - Python 3.12 or newer
 
-Create and activate a virtual environment in PowerShell:
+Clone the repository:
+
+```powershell
+git clone https://github.com/marvinjbb/extraction-agent.git
+cd extraction-agent
+```
+
+Create and activate a virtual environment.
+
+PowerShell:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
+```
+
+macOS/Linux:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
 Install the application and development dependencies:
@@ -54,7 +71,21 @@ Install the application and development dependencies:
 python -m pip install -e ".[dev]"
 ```
 
-Copy `.env.example` to `.env`, then set `OPENAI_API_KEY` locally. `.env` is ignored by Git and must never be committed. Optional `OPENAI_MODEL` and `OPENAI_TIMEOUT_SECONDS` settings default to `gpt-5.4-nano` and 30 seconds.
+Create local configuration from the safe example.
+
+PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+macOS/Linux:
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` locally and set `OPENAI_API_KEY`. Do not paste a real key into `.env.example`, source code, terminal history, issues, or commits. `.env` is ignored by Git. Optional `OPENAI_MODEL` and `OPENAI_TIMEOUT_SECONDS` settings default to `gpt-5.4-nano` and 30 seconds.
 
 Start the local API:
 
@@ -62,7 +93,13 @@ Start the local API:
 python -m uvicorn app.main:app --reload
 ```
 
-Then open `http://127.0.0.1:8000/health`. The expected response is:
+In another terminal, verify health:
+
+```powershell
+curl.exe http://127.0.0.1:8000/health
+```
+
+On macOS/Linux, use `curl` instead of `curl.exe`. The expected response is:
 
 ```json
 {"status":"ok"}
@@ -73,7 +110,10 @@ Run the checks:
 ```powershell
 python -m ruff check .
 python -m pytest
+python -m pip check
 ```
+
+Tests use dependency-injected fakes and do not require `OPENAI_API_KEY` or call the real OpenAI API.
 
 ## Current API
 
@@ -95,6 +135,18 @@ Accepts one multipart upload in the `file` field. The current validation layer:
 - Validates provider output against the `Invoice` Pydantic schema.
 
 A valid upload returns structured invoice JSON:
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/extractions/invoice `
+  -F "file=@C:\path\to\invoice.pdf;type=application/pdf"
+```
+
+macOS/Linux:
+
+```bash
+curl -X POST http://127.0.0.1:8000/extractions/invoice \
+  -F "file=@/path/to/invoice.pdf;type=application/pdf"
+```
 
 ```json
 {
@@ -128,3 +180,26 @@ Invoice facts are nullable because real documents can omit them. Missing collect
 `app/llm_extraction.py` contains the provider-specific adapter. The FastAPI route depends on the application-owned `InvoiceExtractor` interface rather than OpenAI SDK calls directly. Provider timeouts return HTTP 504; provider and invalid structured-output failures return HTTP 502; missing server configuration returns HTTP 503. Error responses do not expose credentials or provider internals.
 
 The current model default is `gpt-5.4-nano`, selected for this bounded, cost-sensitive data-extraction MVP. Model quality must be evaluated against representative invoices before public deployment.
+
+## Error Responses
+
+Errors use FastAPI's `{"detail":"..."}` shape.
+
+| Status | Meaning |
+| --- | --- |
+| 400 | The uploaded PDF is empty. |
+| 413 | The upload exceeds the 5 MiB limit. |
+| 415 | The declared type or file signature is not supported. |
+| 422 | The PDF is unreadable or has no extractable embedded text. |
+| 502 | The provider failed or returned invalid structured output. |
+| 503 | The server has no usable provider configuration. |
+| 504 | The provider exceeded its configured timeout. |
+
+## Current Limitations
+
+- Only one text-based PDF is accepted per request; images and OCR are unsupported.
+- PDF text order can differ from visual layout, especially for complex tables.
+- Schema-valid output can still contain extraction mistakes or conservative omissions.
+- Ambiguous labels may be returned as null with warnings rather than inferred.
+- Files are processed ephemerally; there is no history, persistence, or retry queue.
+- The local MVP has no authentication, public-demo rate limiting, Docker, or deployment configuration yet.
