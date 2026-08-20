@@ -6,6 +6,8 @@ A production-minded AI engineering portfolio project for extracting validated, s
 
 Phase 1 is complete locally. The narrow MVP validates one invoice PDF upload, extracts embedded text page by page, asks OpenAI for schema-constrained invoice facts, validates the result with the application-owned Pydantic model, and returns structured JSON. The separate `marvinjb.dev` demo is now connected to this API for local development. Automated tests replace the provider with fakes; controlled live requests have verified the complete browser-to-backend flow.
 
+Phase 3.5 adds stateless **Ask This Invoice** queries. `POST /extractions/invoice/query` accepts one question plus the existing `Invoice` JSON and returns `{"answer":"..."}`. It never receives the original PDF, previous messages, frontend prompts, provider settings, or credentials.
+
 ## Approved MVP
 
 The first local MVP will accept one text-based invoice PDF, extract its text, use an LLM to produce structured invoice fields, validate the output, and return JSON.
@@ -162,6 +164,29 @@ curl -X POST http://127.0.0.1:8000/extractions/invoice \
   "warnings": []
 }
 ```
+
+### `POST /extractions/invoice/query`
+
+Accepts JSON containing `question` and an `invoice` that must satisfy the existing `Invoice` schema. Questions are trimmed, must be non-empty, and may contain at most 500 characters. Each request is independent and returns one concise grounded answer.
+
+```json
+{
+  "question": "What is the total?",
+  "invoice": {
+    "vendor": "Acme Supplies",
+    "invoice_number": "INV-1001",
+    "invoice_date": "2026-08-20",
+    "currency": "USD",
+    "subtotal": "100.00",
+    "tax": "8.25",
+    "total": "108.25",
+    "line_items": [],
+    "warnings": []
+  }
+}
+```
+
+The validated invoice is already the complete small context, so this endpoint uses direct grounding rather than RAG, embeddings, or a vector database.
 
 ## Invoice Schema
 

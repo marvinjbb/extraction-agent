@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.invoice_query import InvoiceQueryService, get_invoice_query_service
 from app.llm_extraction import (
     InvalidLLMOutputError,
     InvoiceExtractor,
@@ -18,7 +19,7 @@ from app.pdf_extraction import (
     PDFExtractionError,
     extract_pdf_text,
 )
-from app.schemas import Invoice
+from app.schemas import Invoice, InvoiceQueryRequest, InvoiceQueryResponse
 from app.upload_validation import validate_invoice_pdf
 
 load_dotenv()
@@ -76,6 +77,34 @@ async def accept_invoice_pdf(
 
     try:
         return await extractor.extract(extracted.text)
+    except LLMConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except LLMTimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=str(exc),
+        ) from exc
+    except (LLMProviderError, InvalidLLMOutputError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+
+@app.post("/extractions/invoice/query", response_model=InvoiceQueryResponse)
+async def query_invoice(
+    request: InvoiceQueryRequest,
+    query_service: Annotated[
+        InvoiceQueryService, Depends(get_invoice_query_service)
+    ],
+) -> InvoiceQueryResponse:
+    """Answer one question using only an already-validated invoice."""
+    try:
+        answer = await query_service.answer(request.question, request.invoice)
+        return InvoiceQueryResponse(answer=answer)
     except LLMConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -8,7 +8,7 @@ This is the living progress tracker for the Extraction Agent. Update statuses an
 
 **Status:** `COMPLETE`
 
-The complete local pipeline and its important failure paths are verified. The separate portfolio UI now calls this service locally through a narrowly configured CORS boundary. Automated tests cannot spend API money, and a controlled browser request verified the complete React-to-OpenAI flow. Containerization and deployment remain later approved phases.
+The complete local extraction pipeline and its important failure paths are verified. Phase 3.5 adds stateless questions grounded only in the validated invoice. Automated tests cannot spend API money, and controlled browser requests verify the approved local flows. Containerization and deployment remain later approved phases.
 
 ## Foundation — Repository and project documentation
 
@@ -109,6 +109,12 @@ Phases 1A through 1F are complete. The repository now provides the approved back
 **Status:** `COMPLETE`
 
 The `marvinjb.dev` demo submits one multipart `file` to this service through an environment-configured local URL. Explicit local origins are allowed with CORS, and automated plus controlled browser checks verify response and failure handling without moving parsing, provider credentials, or business logic into the frontend.
+
+## Platform Phase 3.5 — Ask This Invoice
+
+**Status:** `COMPLETE`
+
+The backend accepts a validated `Invoice` plus one bounded question, constructs the grounded provider request internally, and returns one answer. Questions are independent, automated tests use fakes, and no PDF, retrieval system, conversation database, or frontend provider configuration is introduced.
 
 ## Later platform phases
 

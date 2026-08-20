@@ -8,6 +8,24 @@ OCR, databases, Docker, deployment infrastructure, and the public API route have
 
 Local CORS allows only the configured `FRONTEND_ORIGINS`, defaulting to `http://localhost:3000` and `http://127.0.0.1:3000`. Credentials are not allowed because the current multipart request needs no browser cookies or authorization header. Production origins will be configured explicitly in the later public integration phase.
 
+## Current Invoice Query Boundary
+
+```text
+Question + existing Invoice JSON
+        ↓
+InvoiceQueryRequest validation
+        ↓
+OpenAIInvoiceQueryService
+        ↓
+Backend-owned grounding instructions
+        ↓
+InvoiceQueryResponse { answer }
+```
+
+The query service serializes the Pydantic-validated invoice as the only factual context. It does not receive the PDF, rerun extraction, or include previous questions and answers. Missing facts must be reported as unavailable. Provider configuration and prompts remain backend-only.
+
+RAG is not justified: one invoice is already small, structured, and available in memory, so there is nothing useful to retrieve from an external index. Embeddings, a vector database, persistent chat storage, and agent frameworks would add complexity without solving a current requirement.
+
 ## Current Upload Boundary
 
 ```text

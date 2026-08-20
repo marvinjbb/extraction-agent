@@ -201,3 +201,23 @@ This is a living ADR log. Append future architectural decisions rather than sile
 **Tradeoffs:** Every frontend environment must be added explicitly, and an incorrect origin appears to users as a network failure. The policy must be revisited before public deployment.
 
 **When we should reconsider it:** Reconsider when the production portfolio origin is connected, if authentication introduces credentialed requests, or if a same-origin proxy removes the browser cross-origin boundary.
+
+---
+
+## ADR-012 — Ground invoice questions directly in validated JSON
+
+**Decision ID:** ADR-012
+
+**Status:** ACCEPTED
+
+**Classification:** CUSTOM
+
+**Context:** After extraction, the complete invoice is a small application-owned Pydantic object. The query feature needs answers about that one object rather than retrieval across a corpus.
+
+**Decision:** Validate every request with `InvoiceQueryRequest`, serialize its existing `Invoice` as provider context, keep grounding instructions in the backend adapter, and return only `InvoiceQueryResponse`. Treat every question independently and cap it at 500 characters.
+
+**Why:** Direct context is simpler and more deterministic than RAG for an already-structured object. It avoids resending the PDF, rerunning extraction, persisting chat state, or introducing embeddings and retrieval infrastructure.
+
+**Tradeoffs:** There is no conversational memory, and the model can only answer from fields preserved by the extraction schema. Model grounding is instructed and tested at the request boundary but does not mathematically guarantee factual accuracy.
+
+**When we should reconsider it:** Reconsider if questions must span many documents, require source-page citations, depend on prior turns, or encounter context-size constraints that create a genuine retrieval requirement.
