@@ -2,9 +2,11 @@
 
 ## Current State
 
-The `extraction-agent` repository is a separate Git project with a complete narrow local MVP on Python 3.12+ and FastAPI. `GET /health` returns `{"status":"ok"}`. `POST /extractions/invoice` accepts one PDF upload, applies bounded byte-level validation, extracts embedded text page by page with `pypdf`, requests schema-constrained invoice facts through an isolated OpenAI adapter, validates them with Pydantic, and returns structured JSON. Automated tests cover representative workflows and expected failures without provider calls; controlled live tests verify complete and sparse invoices against the real provider.
+The `extraction-agent` repository is a separate Git project with a complete narrow local MVP on Python 3.12+ and FastAPI. `GET /health` returns `{"status":"ok"}`. `POST /extractions/invoice` accepts one PDF upload, applies bounded byte-level validation, extracts embedded text page by page with `pypdf`, requests schema-constrained invoice facts through an isolated OpenAI adapter, validates them with Pydantic, and returns structured JSON. The separate `marvinjb.dev` React demo now calls this endpoint locally. Automated tests cover representative workflows and expected failures without provider calls; a controlled browser test verifies the complete frontend-to-provider round trip.
 
 OCR, databases, Docker, deployment infrastructure, and the public API route have not been implemented.
+
+Local CORS allows only the configured `FRONTEND_ORIGINS`, defaulting to `http://localhost:3000` and `http://127.0.0.1:3000`. Credentials are not allowed because the current multipart request needs no browser cookies or authorization header. Production origins will be configured explicitly in the later public integration phase.
 
 ## Current Upload Boundary
 

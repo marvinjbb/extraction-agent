@@ -1,6 +1,9 @@
+import os
 from typing import Annotated
 
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.llm_extraction import (
     InvalidLLMOutputError,
@@ -18,7 +21,30 @@ from app.pdf_extraction import (
 from app.schemas import Invoice
 from app.upload_validation import validate_invoice_pdf
 
+load_dotenv()
+
+DEFAULT_FRONTEND_ORIGINS = (
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+)
+
+
+def get_frontend_origins() -> list[str]:
+    """Return explicit browser origins allowed to call this local API."""
+    configured = os.getenv("FRONTEND_ORIGINS")
+    if configured is None:
+        return list(DEFAULT_FRONTEND_ORIGINS)
+    return [origin.strip() for origin in configured.split(",") if origin.strip()]
+
+
 app = FastAPI(title="Extraction Agent", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_frontend_origins(),
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Accept", "Content-Type"],
+)
 
 
 @app.get("/health")

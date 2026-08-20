@@ -181,3 +181,23 @@ This is a living ADR log. Append future architectural decisions rather than sile
 **Tradeoffs:** The service now depends on an external paid provider, network availability, model access, and provider-specific SDK behavior. Schema-valid output can still contain factually incorrect extraction, and changing providers requires a new adapter plus comparative evaluation. The default model may be less accurate than a larger model on difficult invoices.
 
 **When we should reconsider it:** Reconsider the model after evaluation on representative invoices, or the provider when accuracy, latency, cost, privacy, regional processing, availability, or portability requirements materially change. Reconsider direct request processing if measured latency requires an asynchronous job design.
+
+---
+
+## ADR-011 — Use an explicit CORS allowlist for browser clients
+
+**Decision ID:** ADR-011
+
+**Status:** ACCEPTED
+
+**Classification:** STANDARD
+
+**Context:** During local integration, the portfolio runs on port 3000 and calls FastAPI on port 8000. Browsers treat these as different origins and require the backend to authorize the cross-origin request.
+
+**Decision:** Configure FastAPI CORS from the comma-separated `FRONTEND_ORIGINS` environment variable, default it only to the two documented local origins, permit the required GET/POST methods and headers, and do not allow credentials.
+
+**Why:** This grants the minimum browser access needed for the current multipart upload while keeping deployment-specific origins outside application code and leaving `OPENAI_API_KEY` exclusively on the backend.
+
+**Tradeoffs:** Every frontend environment must be added explicitly, and an incorrect origin appears to users as a network failure. The policy must be revisited before public deployment.
+
+**When we should reconsider it:** Reconsider when the production portfolio origin is connected, if authentication introduces credentialed requests, or if a same-origin proxy removes the browser cross-origin boundary.

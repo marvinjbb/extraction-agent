@@ -4,7 +4,7 @@ A production-minded AI engineering portfolio project for extracting validated, s
 
 ## Current Status
 
-Phase 1 is complete locally. The narrow MVP validates one invoice PDF upload, extracts embedded text page by page, asks OpenAI for schema-constrained invoice facts, validates the result with the application-owned Pydantic model, and returns structured JSON. Automated tests replace the provider with fakes; controlled live requests have verified complete and sparse invoices through the real integration.
+Phase 1 is complete locally. The narrow MVP validates one invoice PDF upload, extracts embedded text page by page, asks OpenAI for schema-constrained invoice facts, validates the result with the application-owned Pydantic model, and returns structured JSON. The separate `marvinjb.dev` demo is now connected to this API for local development. Automated tests replace the provider with fakes; controlled live requests have verified the complete browser-to-backend flow.
 
 ## Approved MVP
 
@@ -85,7 +85,7 @@ macOS/Linux:
 cp .env.example .env
 ```
 
-Open `.env` locally and set `OPENAI_API_KEY`. Do not paste a real key into `.env.example`, source code, terminal history, issues, or commits. `.env` is ignored by Git. Optional `OPENAI_MODEL` and `OPENAI_TIMEOUT_SECONDS` settings default to `gpt-5.4-nano` and 30 seconds.
+Open `.env` locally and set `OPENAI_API_KEY`. Do not paste a real key into `.env.example`, source code, terminal history, issues, or commits. `.env` is ignored by Git. Optional `OPENAI_MODEL` and `OPENAI_TIMEOUT_SECONDS` settings default to `gpt-5.4-nano` and 30 seconds. `FRONTEND_ORIGINS` is a comma-separated CORS allowlist and defaults to the two local port-3000 origins shown in `.env.example`.
 
 Start the local API:
 
@@ -128,6 +128,7 @@ Accepts one multipart upload in the `file` field. The current validation layer:
 - Accepts only `application/pdf` uploads with a `%PDF-` file signature.
 - Rejects empty files.
 - Rejects files larger than 5 MiB (5,242,880 bytes).
+
 - Extracts embedded text with `pypdf`; it does not persist the PDF.
 - Rejects malformed PDFs and PDFs without extractable text.
 - Does not perform OCR.

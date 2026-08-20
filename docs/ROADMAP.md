@@ -8,7 +8,7 @@ This is the living progress tracker for the Extraction Agent. Update statuses an
 
 **Status:** `COMPLETE`
 
-The complete local pipeline and its important failure paths are verified. Documentation now supports a fresh clone-to-request workflow, automated tests cannot spend API money, and controlled live requests cover complete and sparse invoices. The local Extraction Agent MVP is complete; UI, containerization, and deployment remain later approved phases.
+The complete local pipeline and its important failure paths are verified. The separate portfolio UI now calls this service locally through a narrowly configured CORS boundary. Automated tests cannot spend API money, and a controlled browser request verified the complete React-to-OpenAI flow. Containerization and deployment remain later approved phases.
 
 ## Foundation — Repository and project documentation
 
@@ -104,8 +104,14 @@ The complete local pipeline and its important failure paths are verified. Docume
 
 Phases 1A through 1F are complete. The repository now provides the approved backend-only local MVP: one text-based invoice PDF enters an ephemeral validated pipeline and returns an application-validated structured invoice response. No later platform infrastructure has been pulled forward.
 
+## Platform Phase 3 — Local portfolio integration
+
+**Status:** `COMPLETE`
+
+The `marvinjb.dev` demo submits one multipart `file` to this service through an environment-configured local URL. Explicit local origins are allowed with CORS, and automated plus controlled browser checks verify response and failure handling without moving parsing, provider credentials, or business logic into the frontend.
+
 ## Later platform phases
 
 **Status:** `NOT STARTED`
 
-After local MVP approval, work proceeds through portfolio UI integration, Dockerization, VPS deployment, Nginx/API routing, public integration, and proportionate production hardening in alignment with the master `marvinjb.dev` roadmap. These phases must not be pulled forward without approval.
+After local integration approval, work proceeds through Dockerization, VPS deployment, Nginx/API routing, public integration, and proportionate production hardening in alignment with the master `marvinjb.dev` roadmap. These phases must not be pulled forward without approval.
