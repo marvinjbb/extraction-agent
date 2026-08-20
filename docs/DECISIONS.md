@@ -143,3 +143,21 @@ This is a living ADR log. Append future architectural decisions rather than sile
 **Tradeoffs:** Decimal values require deliberate JSON serialization and can accept valid decimal strings through Pydantic conversion. A fully nullable invoice model can validate even when few facts were extracted, so extraction-quality checks and warnings remain separate responsibilities.
 
 **When we should reconsider it:** Reconsider field requirements after evaluating representative invoices and downstream UI needs. Reconsider decimal precision or currency modeling if arithmetic, multi-currency conversion, or accounting-grade requirements are introduced.
+
+---
+
+## ADR-009 — Use pypdf for MVP embedded-text extraction
+
+**Decision ID:** ADR-009  
+**Status:** ACCEPTED  
+**Classification:** CUSTOM
+
+**Context:** Phase 1D needs only in-memory, page-by-page extraction of embedded text from validated PDFs. Rich table analysis, coordinate-level inspection, OCR, PDF modification, and broad document-format support are outside the current scope.
+
+**Decision:** Use `pypdf` to read validated PDF bytes and extract embedded text from each page. Combine non-empty page text in page order, report the original page count, and return distinct application errors for unreadable PDFs and PDFs with no extractable text.
+
+**Why:** `pypdf` directly supports the required page iteration and text extraction with a small pure-Python dependency surface. `pdfplumber` adds layout, object, and table tooling that is not yet required. PyMuPDF offers broader and faster native-backed capabilities but adds unnecessary scope and licensing considerations for this MVP.
+
+**Tradeoffs:** PDF text order and layout can be ambiguous, table structure is not preserved, and image-only PDFs produce no text. Parsing may expand compressed page content beyond the uploaded file size, so representative-document testing and production resource controls remain necessary.
+
+**When we should reconsider it:** Reconsider after evaluating real invoices if text order, tables, layout coordinates, performance, memory behavior, or supported PDF variants make a richer parser demonstrably necessary. OCR requires a separate explicit decision.

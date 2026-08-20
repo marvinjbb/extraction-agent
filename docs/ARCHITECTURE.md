@@ -2,9 +2,9 @@
 
 ## Current State
 
-The `extraction-agent` repository is a separate Git project with a Python 3.12+ development environment and a minimal FastAPI application. `GET /health` returns `{"status":"ok"}`. `POST /extractions/invoice` accepts one PDF upload, applies bounded byte-level validation, and returns temporary acceptance metadata. Pydantic models independently define the future structured invoice output. The implemented layers are covered by automated tests.
+The `extraction-agent` repository is a separate Git project with a Python 3.12+ development environment and a minimal FastAPI application. `GET /health` returns `{"status":"ok"}`. `POST /extractions/invoice` accepts one PDF upload, applies bounded byte-level validation, extracts embedded text page by page with `pypdf`, and returns a temporary development response. Pydantic models independently define the future structured invoice output. The implemented layers are covered by automated tests.
 
-PDF text parsing, LLM integration, OCR, databases, Docker, deployment infrastructure, and the public API route have not been implemented. The upload endpoint does not return the invoice schema yet.
+LLM integration, OCR, databases, Docker, deployment infrastructure, and the public API route have not been implemented. The upload endpoint does not return the invoice schema yet.
 
 ## Current Upload Boundary
 
@@ -19,10 +19,28 @@ Reject empty or oversized content
     ↓
 Verify %PDF- signature
     ↓
-Return temporary acceptance metadata
+Pass validated bytes to PDF extraction
 ```
 
 The 5 MiB limit is intentionally small for a public portfolio MVP. Checking both the declared media type and the leading PDF signature catches simple mismatches without pretending to fully validate or parse the document. Uploaded content is not persisted.
+
+## Current PDF Text Extraction Boundary
+
+```text
+Validated PDF bytes
+    ↓
+pypdf PdfReader
+    ↓
+Extract embedded text from each page
+    ↓
+Trim page text and join readable pages in order
+    ↓
+Return page count and combined text
+```
+
+`pypdf` was selected as the smallest suitable dependency for in-memory, page-by-page text extraction. Malformed or unreadable PDFs produce an application-level extraction error. A readable PDF with no embedded text produces a distinct no-text error explaining that OCR is not supported.
+
+This layer does not infer fields, reconstruct tables, perform OCR, or prove that extracted text matches visual reading order. Complex layouts and unusually large decompressed page content remain known parser limitations to evaluate with representative invoices and before public hardening.
 
 ## Current Schema Boundary
 

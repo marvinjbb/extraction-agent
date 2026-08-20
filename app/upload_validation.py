@@ -5,8 +5,8 @@ PDF_SIGNATURE = b"%PDF-"
 MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024
 
 
-async def validate_invoice_pdf(file: UploadFile) -> int:
-    """Validate an invoice PDF upload and return its size in bytes."""
+async def validate_invoice_pdf(file: UploadFile) -> bytes:
+    """Validate an invoice PDF upload and return its bounded contents."""
     if file.content_type != PDF_CONTENT_TYPE:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
@@ -33,4 +33,4 @@ async def validate_invoice_pdf(file: UploadFile) -> int:
             detail="The uploaded file does not have a valid PDF signature.",
         )
 
-    return len(content)
+    return content

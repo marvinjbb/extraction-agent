@@ -4,7 +4,7 @@ A production-minded AI engineering portfolio project for extracting validated, s
 
 ## Current Status
 
-Phase 1C is complete locally. The FastAPI application accepts and validates one invoice PDF upload, and Pydantic models define the future structured invoice output. PDF text parsing and document extraction have not been implemented.
+Phase 1D is complete locally. The FastAPI application validates one invoice PDF upload and extracts embedded text page by page. Pydantic models independently define the future structured invoice output. LLM extraction has not been implemented.
 
 ## Approved MVP
 
@@ -86,18 +86,22 @@ Accepts one multipart upload in the `file` field. The current validation layer:
 - Accepts only `application/pdf` uploads with a `%PDF-` file signature.
 - Rejects empty files.
 - Rejects files larger than 5 MiB (5,242,880 bytes).
-- Reads the upload only for validation; it does not parse or persist the PDF.
+- Extracts embedded text with `pypdf`; it does not persist the PDF.
+- Rejects malformed PDFs and PDFs without extractable text.
+- Does not perform OCR.
 
-A valid upload currently returns temporary acceptance metadata:
+A valid upload currently returns a temporary development response:
 
 ```json
 {
   "filename": "invoice.pdf",
-  "content_type": "application/pdf",
-  "size_bytes": 12345,
-  "status": "accepted"
+  "status": "text_extracted",
+  "page_count": 1,
+  "text": "Invoice INV-1001"
 }
 ```
+
+This response will be replaced by structured invoice extraction in Phase 1E.
 
 ## Invoice Schema
 
