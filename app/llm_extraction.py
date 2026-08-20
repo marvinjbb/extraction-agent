@@ -1,4 +1,5 @@
 import base64
+import logging
 import os
 from typing import Protocol
 
@@ -11,6 +12,21 @@ from app.schemas import Invoice
 
 DEFAULT_MODEL = "gpt-5.4-nano"
 DEFAULT_TIMEOUT_SECONDS = 30.0
+INVOICE_EXTRACTION_INSTRUCTIONS = (
+    "Extract invoice facts only from the supplied invoice content. Never invent "
+    "missing values. Use null for missing scalar fields, an empty list when there "
+    "are no line items, and warnings for unclear facts. Return invoice_date only "
+    "as YYYY-MM-DD. Normalize unambiguous printed dates: 08/18/26 means "
+    "2026-08-18; 20-AUG-2026 means 2026-08-20; and 18/08/2026 means "
+    "2026-08-18. A numeric date such as 08/09/26 is ambiguous unless document "
+    "context establishes its ordering; otherwise use null and add a warning. If no "
+    "date is visible, use null. If a visible date is partially unreadable or cannot "
+    "be safely normalized, use null and add a warning. Never copy receipt date "
+    "formats such as MM/DD/YY, DD/MM/YYYY, or DD-MMM-YYYY directly into "
+    "invoice_date. Use a three-letter uppercase ISO currency code only when the "
+    "document supports it. Do not calculate values that are not explicitly present."
+)
+logger = logging.getLogger(__name__)
 
 
 class InvoiceExtractor(Protocol):
@@ -45,6 +61,35 @@ class LLMProviderError(LLMExtractionError):
 
 class InvalidLLMOutputError(LLMExtractionError):
     """Raised when provider output does not satisfy the Invoice contract."""
+
+
+def _log_validation_failure(
+    stage: str, error: ValidationError | TypeError
+) -> None:
+    """Log schema diagnostics without rejected values or provider content."""
+    if isinstance(error, ValidationError):
+        for detail in error.errors(
+            include_url=False,
+            include_context=False,
+            include_input=False,
+        ):
+            field = ".".join(str(part) for part in detail["loc"]) or "<root>"
+            logger.warning(
+                "Invoice structured-output validation failed "
+                "stage=%s field=%s error_type=%s reason=%s",
+                stage,
+                field,
+                detail["type"],
+                detail["msg"],
+            )
+        return
+
+    logger.warning(
+        "Invoice structured-output validation failed "
+        "stage=%s field=<root> error_type=type_error "
+        "reason=Result could not be validated as an Invoice",
+        stage,
+    )
 
 
 class OpenAIInvoiceExtractor:
@@ -108,15 +153,7 @@ class OpenAIInvoiceExtractor:
                 input=[
                     {
                         "role": "developer",
-                        "content": (
-                            "Extract invoice facts only from the supplied invoice "
-                            "content. Never invent missing values. Use null for "
-                            "missing scalar fields, an empty list when there are no "
-                            "line items. Add warnings for unclear facts. "
-                            "Use a three-letter uppercase ISO currency code only when "
-                            "the document supports it. Do not calculate values that "
-                            "are not explicitly present."
-                        ),
+                        "content": INVOICE_EXTRACTION_INSTRUCTIONS,
                     },
                     *user_input,
                 ],
@@ -125,6 +162,7 @@ class OpenAIInvoiceExtractor:
         except APITimeoutError as exc:
             raise LLMTimeoutError("The invoice extraction provider timed out.") from exc
         except ValidationError as exc:
+            _log_validation_failure("responses.parse", exc)
             raise InvalidLLMOutputError(
                 "The invoice extraction provider returned an invalid structured result."
             ) from exc
@@ -141,6 +179,7 @@ class OpenAIInvoiceExtractor:
         try:
             return Invoice.model_validate(response.output_parsed)
         except (TypeError, ValidationError) as exc:
+            _log_validation_failure("Invoice.model_validate", exc)
             raise InvalidLLMOutputError(
                 "The invoice extraction provider returned an invalid structured result."
             ) from exc
