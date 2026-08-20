@@ -4,11 +4,11 @@ This is the living progress tracker for the Extraction Agent. Update statuses an
 
 ## Current Focus
 
-**Phase 1D — PDF text extraction**
+**Phase 1E — LLM structured invoice extraction**
 
 **Status:** `COMPLETE`
 
-Validated PDF bytes are parsed with `pypdf`, embedded text is combined in page order, and malformed/no-text documents fail with clear application errors. Tests and live multipart requests verify the temporary validation-to-text flow. Phase 1E must not begin until review.
+Extracted text now passes through an isolated OpenAI Structured Outputs adapter and the application-owned Pydantic `Invoice` contract. Provider failures are mapped to clear application errors, automated tests use fakes, and one controlled live request verified the real integration. Phase 1F must not begin until review.
 
 ## Foundation — Repository and project documentation
 
@@ -72,7 +72,7 @@ Validated PDF bytes are parsed with `pypdf`, embedded text is combined in page o
 
 ## Phase 1E — LLM structured invoice extraction
 
-**Status:** `NOT STARTED`
+**Status:** `COMPLETE`
 
 **Goal:** Convert extracted invoice text into schema-valid structured data.
 
@@ -81,6 +81,8 @@ Validated PDF bytes are parsed with `pypdf`, embedded text is combined in page o
 **Understanding required:** Model/provider tradeoffs, prompts, structured generation, deterministic validation, hallucination risks, retries, timeouts, and cost boundaries.
 
 **Completion criteria:** Representative text-based invoices produce schema-valid results; failures do not expose secrets or fabricate success; quality limitations are documented.
+
+**Completion evidence:** Ruff, 29 automated tests, and dependency integrity checks pass. Mocked tests cover the provider boundary and full endpoint flow without a key. One controlled live request returned a schema-valid invoice through the complete Phase 1E pipeline.
 
 ## Phase 1F — Complete and verify the local MVP
 

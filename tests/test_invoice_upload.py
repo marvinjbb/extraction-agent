@@ -1,13 +1,62 @@
+from datetime import date
+from decimal import Decimal
+
+import pytest
 from fastapi.testclient import TestClient
 
+from app.llm_extraction import (
+    InvalidLLMOutputError,
+    LLMProviderError,
+    LLMTimeoutError,
+    get_invoice_extractor,
+)
 from app.main import app
+from app.schemas import Invoice, LineItem
 from app.upload_validation import MAX_UPLOAD_SIZE_BYTES
 from tests.pdf_factory import build_pdf
 
 client = TestClient(app)
 
 
-def test_valid_pdf_is_accepted() -> None:
+class FakeInvoiceExtractor:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.received_text: str | None = None
+
+    async def extract(self, document_text: str) -> Invoice:
+        self.received_text = document_text
+        if self.error:
+            raise self.error
+        return Invoice(
+            vendor="Acme Supplies",
+            invoice_number="INV-1001",
+            invoice_date=date(2026, 8, 20),
+            currency="USD",
+            subtotal=Decimal("100.00"),
+            tax=Decimal("8.25"),
+            total=Decimal("108.25"),
+            line_items=[
+                LineItem(
+                    description="Consulting",
+                    quantity=Decimal("1"),
+                    unit_price=Decimal("100.00"),
+                    amount=Decimal("100.00"),
+                )
+            ],
+        )
+
+
+@pytest.fixture(autouse=True)
+def use_fake_invoice_extractor() -> FakeInvoiceExtractor:
+    extractor = FakeInvoiceExtractor()
+    app.dependency_overrides[get_invoice_extractor] = lambda: extractor
+    yield extractor
+    app.dependency_overrides.clear()
+
+
+def test_valid_pdf_returns_structured_invoice(
+    use_fake_invoice_extractor: FakeInvoiceExtractor,
+) -> None:
     content = build_pdf("Invoice INV-1001")
 
     response = client.post(
@@ -17,11 +66,50 @@ def test_valid_pdf_is_accepted() -> None:
 
     assert response.status_code == 200
     assert response.json() == {
-        "filename": "invoice.pdf",
-        "status": "text_extracted",
-        "page_count": 1,
-        "text": "Invoice INV-1001",
+        "vendor": "Acme Supplies",
+        "invoice_number": "INV-1001",
+        "invoice_date": "2026-08-20",
+        "currency": "USD",
+        "subtotal": "100.00",
+        "tax": "8.25",
+        "total": "108.25",
+        "line_items": [
+            {
+                "description": "Consulting",
+                "quantity": "1",
+                "unit_price": "100.00",
+                "amount": "100.00",
+            }
+        ],
+        "warnings": [],
     }
+    assert use_fake_invoice_extractor.received_text == "Invoice INV-1001"
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_status", "expected_detail"),
+    [
+        (LLMTimeoutError("provider timed out"), 504, "provider timed out"),
+        (LLMProviderError("provider failed"), 502, "provider failed"),
+        (InvalidLLMOutputError("invalid output"), 502, "invalid output"),
+    ],
+)
+def test_llm_failures_return_clear_http_errors(
+    error: Exception,
+    expected_status: int,
+    expected_detail: str,
+) -> None:
+    app.dependency_overrides[get_invoice_extractor] = lambda: FakeInvoiceExtractor(
+        error
+    )
+
+    response = client.post(
+        "/extractions/invoice",
+        files={"file": ("invoice.pdf", build_pdf("Invoice"), "application/pdf")},
+    )
+
+    assert response.status_code == expected_status
+    assert response.json() == {"detail": expected_detail}
 
 
 def test_non_pdf_is_rejected() -> None:

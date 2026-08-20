@@ -161,3 +161,23 @@ This is a living ADR log. Append future architectural decisions rather than sile
 **Tradeoffs:** PDF text order and layout can be ambiguous, table structure is not preserved, and image-only PDFs produce no text. Parsing may expand compressed page content beyond the uploaded file size, so representative-document testing and production resource controls remain necessary.
 
 **When we should reconsider it:** Reconsider after evaluating real invoices if text order, tables, layout coordinates, performance, memory behavior, or supported PDF variants make a richer parser demonstrably necessary. OCR requires a separate explicit decision.
+
+---
+
+## ADR-010 — Use OpenAI Structured Outputs behind an application boundary
+
+**Decision ID:** ADR-010
+
+**Status:** ACCEPTED
+
+**Classification:** CUSTOM
+
+**Context:** The MVP must turn extracted invoice text into data that matches the existing application-owned Pydantic `Invoice` schema. Ordinary JSON prompting can produce malformed or shape-incompatible output, while embedding provider calls in the FastAPI route would couple transport logic to one SDK.
+
+**Decision:** Use the OpenAI Responses API with native Structured Outputs through a small `InvoiceExtractor` boundary. Use `gpt-5.4-nano` as the configurable MVP default, validate every result locally with Pydantic, load credentials and timeout settings from environment variables, and replace the provider with fakes in automated tests.
+
+**Why:** Native schema constraints reduce output-format failures, while the local Pydantic model remains the authoritative contract. The boundary isolates provider-specific code and failure handling. `gpt-5.4-nano` is suitable for a bounded, cost-sensitive data-extraction workflow without paying for a frontier model before evaluations justify it.
+
+**Tradeoffs:** The service now depends on an external paid provider, network availability, model access, and provider-specific SDK behavior. Schema-valid output can still contain factually incorrect extraction, and changing providers requires a new adapter plus comparative evaluation. The default model may be less accurate than a larger model on difficult invoices.
+
+**When we should reconsider it:** Reconsider the model after evaluation on representative invoices, or the provider when accuracy, latency, cost, privacy, regional processing, availability, or portability requirements materially change. Reconsider direct request processing if measured latency requires an asynchronous job design.

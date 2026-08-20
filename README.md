@@ -4,7 +4,7 @@ A production-minded AI engineering portfolio project for extracting validated, s
 
 ## Current Status
 
-Phase 1D is complete locally. The FastAPI application validates one invoice PDF upload and extracts embedded text page by page. Pydantic models independently define the future structured invoice output. LLM extraction has not been implemented.
+Phase 1E is complete locally. The FastAPI application validates one invoice PDF upload, extracts embedded text page by page, asks OpenAI for schema-constrained invoice facts, validates the result with the application-owned Pydantic model, and returns structured JSON. Automated tests replace the provider with fakes; one controlled live request has verified the real integration.
 
 ## Approved MVP
 
@@ -54,6 +54,8 @@ Install the application and development dependencies:
 python -m pip install -e ".[dev]"
 ```
 
+Copy `.env.example` to `.env`, then set `OPENAI_API_KEY` locally. `.env` is ignored by Git and must never be committed. Optional `OPENAI_MODEL` and `OPENAI_TIMEOUT_SECONDS` settings default to `gpt-5.4-nano` and 30 seconds.
+
 Start the local API:
 
 ```powershell
@@ -89,23 +91,28 @@ Accepts one multipart upload in the `file` field. The current validation layer:
 - Extracts embedded text with `pypdf`; it does not persist the PDF.
 - Rejects malformed PDFs and PDFs without extractable text.
 - Does not perform OCR.
+- Sends extracted text through an isolated OpenAI Structured Outputs adapter.
+- Validates provider output against the `Invoice` Pydantic schema.
 
-A valid upload currently returns a temporary development response:
+A valid upload returns structured invoice JSON:
 
 ```json
 {
-  "filename": "invoice.pdf",
-  "status": "text_extracted",
-  "page_count": 1,
-  "text": "Invoice INV-1001"
+  "vendor": "Acme Supplies",
+  "invoice_number": "INV-1001",
+  "invoice_date": "2026-08-20",
+  "currency": "USD",
+  "subtotal": "100.00",
+  "tax": "8.25",
+  "total": "108.25",
+  "line_items": [],
+  "warnings": []
 }
 ```
 
-This response will be replaced by structured invoice extraction in Phase 1E.
-
 ## Invoice Schema
 
-`app/schemas.py` defines the future extraction result independently from the current upload response.
+`app/schemas.py` defines the extraction result independently from the provider.
 
 An invoice can contain:
 
@@ -115,3 +122,9 @@ An invoice can contain:
 - Warnings describing missing or uncertain source information.
 
 Invoice facts are nullable because real documents can omit them. Missing collections default to empty lists. Unknown fields and invalid values are rejected, and no placeholder values are generated.
+
+## LLM Boundary
+
+`app/llm_extraction.py` contains the provider-specific adapter. The FastAPI route depends on the application-owned `InvoiceExtractor` interface rather than OpenAI SDK calls directly. Provider timeouts return HTTP 504; provider and invalid structured-output failures return HTTP 502; missing server configuration returns HTTP 503. Error responses do not expose credentials or provider internals.
+
+The current model default is `gpt-5.4-nano`, selected for this bounded, cost-sensitive data-extraction MVP. Model quality must be evaluated against representative invoices before public deployment.

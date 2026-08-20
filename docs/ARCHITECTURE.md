@@ -2,9 +2,9 @@
 
 ## Current State
 
-The `extraction-agent` repository is a separate Git project with a Python 3.12+ development environment and a minimal FastAPI application. `GET /health` returns `{"status":"ok"}`. `POST /extractions/invoice` accepts one PDF upload, applies bounded byte-level validation, extracts embedded text page by page with `pypdf`, and returns a temporary development response. Pydantic models independently define the future structured invoice output. The implemented layers are covered by automated tests.
+The `extraction-agent` repository is a separate Git project with a Python 3.12+ FastAPI application. `GET /health` returns `{"status":"ok"}`. `POST /extractions/invoice` accepts one PDF upload, applies bounded byte-level validation, extracts embedded text page by page with `pypdf`, requests schema-constrained invoice facts through an isolated OpenAI adapter, validates them with Pydantic, and returns structured JSON. The implemented layers are covered by automated tests and one controlled live provider check.
 
-LLM integration, OCR, databases, Docker, deployment infrastructure, and the public API route have not been implemented. The upload endpoint does not return the invoice schema yet.
+OCR, databases, Docker, deployment infrastructure, and the public API route have not been implemented.
 
 ## Current Upload Boundary
 
@@ -42,10 +42,14 @@ Return page count and combined text
 
 This layer does not infer fields, reconstruct tables, perform OCR, or prove that extracted text matches visual reading order. Complex layouts and unusually large decompressed page content remain known parser limitations to evaluate with representative invoices and before public hardening.
 
-## Current Schema Boundary
+## Current LLM and Schema Boundary
 
 ```text
-Future extraction data
+Extracted document text
+    ↓
+InvoiceExtractor application interface
+    ↓
+OpenAI Responses API + Structured Outputs
     ↓
 Invoice Pydantic model
     ├── nullable document facts
@@ -57,9 +61,11 @@ Invoice Pydantic model
 Validated Python data / JSON-ready output
 ```
 
-The schema is defined before model integration so the future LLM must produce data for an application-owned contract. Pydantic validates types and nested structure, converts supported inputs such as decimal strings, applies defaults, and rejects invalid or unknown fields. It does not decide whether extracted facts are correct.
+The provider adapter is kept outside the route and returns the application-owned `Invoice` contract. OpenAI Structured Outputs constrains generation to that shape, while Pydantic remains the final local validation boundary. It validates types and nested structure, converts supported inputs such as decimal strings, applies defaults, and rejects invalid or unknown fields. Neither schema compliance nor type validation proves that extracted facts are correct.
 
-The intended future flow is:
+Credentials, the model name, and the provider timeout come from environment variables. The default model is `gpt-5.4-nano`, selected for low-cost extraction. Tests inject fakes at the `InvoiceExtractor` boundary and never require a key or make paid requests. Provider timeouts, API failures, missing configuration, and invalid structured results map to explicit application errors.
+
+The implemented local flow is:
 
 ```text
 PDF
