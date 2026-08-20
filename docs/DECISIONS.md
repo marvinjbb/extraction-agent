@@ -113,7 +113,7 @@ This is a living ADR log. Append future architectural decisions rather than sile
 ## ADR-007 — Limit MVP uploads to 5 MiB and verify the PDF signature
 
 **Decision ID:** ADR-007  
-**Status:** ACCEPTED  
+**Status:** SUPERSEDED by ADR-013
 **Classification:** CUSTOM
 
 **Context:** The public portfolio MVP needs a clear upload boundary before document parsing exists. A declared media type alone can be incorrect or trivially spoofed, while unbounded reads create unnecessary memory and cost risk.
@@ -221,3 +221,23 @@ This is a living ADR log. Append future architectural decisions rather than sile
 **Tradeoffs:** There is no conversational memory, and the model can only answer from fields preserved by the extraction schema. Model grounding is instructed and tested at the request boundary but does not mathematically guarantee factual accuracy.
 
 **When we should reconsider it:** Reconsider if questions must span many documents, require source-page citations, depend on prior turns, or encounter context-size constraints that create a genuine retrieval requirement.
+
+---
+
+## ADR-013 — Use text-first extraction with a bounded vision fallback
+
+**Decision ID:** ADR-013
+
+**Status:** ACCEPTED
+
+**Classification:** CUSTOM
+
+**Context:** The text-PDF MVP is proven, but recruiters may reasonably provide scanned PDFs or common invoice images. Sending every readable PDF through vision would add avoidable cost and latency, while local OCR would add binaries, preprocessing, and a second text-quality problem before structured extraction.
+
+**Decision:** Continue using `pypdf` for PDFs with embedded text. When a PDF has no extractable text, render at most five pages with PyMuPDF and send the images to the provider's vision capability. Decode JPG/JPEG and PNG uploads with Pillow, reject unsafe inputs, and send normalized images through the same provider adapter. Validate every result with the existing `Invoice` schema.
+
+**Why:** The hybrid keeps the fastest and least expensive proven path for text documents while adding reliable layout-aware support for scans and images. Provider logic remains isolated, no local OCR service is required, and downstream API and query contracts do not split by media type.
+
+**Tradeoffs:** The service gains two image-processing dependencies, vision latency and cost, and a larger validation/test matrix. Pydantic proves structure rather than visual accuracy. Mixed-content PDFs with some embedded text remain on the text path, and the current limits may reject legitimate large or long invoices.
+
+**When we should reconsider it:** Reconsider local OCR when privacy, offline processing, provider portability, or measured cost justifies its operational burden. Reconsider the routing heuristic and limits after representative mixed PDFs, large images, or multi-page scans demonstrate a concrete need.

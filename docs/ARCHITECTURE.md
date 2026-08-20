@@ -2,9 +2,26 @@
 
 ## Current State
 
-The `extraction-agent` repository is a separate Git project with a complete narrow local MVP on Python 3.12+ and FastAPI. `GET /health` returns `{"status":"ok"}`. `POST /extractions/invoice` accepts one PDF upload, applies bounded byte-level validation, extracts embedded text page by page with `pypdf`, requests schema-constrained invoice facts through an isolated OpenAI adapter, validates them with Pydantic, and returns structured JSON. The separate `marvinjb.dev` React demo now calls this endpoint locally. Automated tests cover representative workflows and expected failures without provider calls; a controlled browser test verifies the complete frontend-to-provider round trip.
+The `extraction-agent` repository is a separate Git project with a complete local MVP on Python 3.12+ and FastAPI. `GET /health` returns `{"status":"ok"}`. `POST /extractions/invoice` accepts one PDF, JPG/JPEG, or PNG invoice under a 5 MiB limit. Text PDFs use `pypdf`; scanned PDFs and images use a bounded OpenAI vision path. Both paths validate against and return the same Pydantic `Invoice` model. The separate `marvinjb.dev` React demo calls this endpoint locally, and automated tests cover both routes without provider calls.
 
-OCR, databases, Docker, deployment infrastructure, and the public API route have not been implemented.
+Local OCR, databases, Docker, deployment infrastructure, and the public API route have not been implemented.
+
+## Current Hybrid Extraction Boundary
+
+```text
+Validated PDF/JPG/PNG upload
+        ├── PDF with embedded text → pypdf → text extractor
+        ├── PDF without text → bounded page render → vision extractor
+        └── JPG/PNG → safe decode/normalize → vision extractor
+                                      ↓
+                         shared Invoice Pydantic schema
+                                      ↓
+                           structured JSON response
+```
+
+Uploads are read only to 5 MiB plus one byte and checked against their declared media type and signature. Pillow rejects unreadable, multi-frame, or over-20-megapixel images and normalizes accepted images to JPEG within 2,000 pixels per side. PyMuPDF renders at most five scanned-PDF pages within the same dimension bound. Uploaded content is processed in memory and not persisted.
+
+`InvoiceExtractionWorkflow` owns capability routing. The FastAPI route owns HTTP concerns, `pypdf` remains the embedded-text parser, and the OpenAI adapter implements separate application-owned text and vision interfaces. A scanned or image invoice therefore changes only the input route; the response schema and Ask This Invoice boundary remain unchanged.
 
 Local CORS allows only the configured `FRONTEND_ORIGINS`, defaulting to `http://localhost:3000` and `http://127.0.0.1:3000`. Credentials are not allowed because the current multipart request needs no browser cookies or authorization header. Production origins will be configured explicitly in the later public integration phase.
 
@@ -31,18 +48,18 @@ RAG is not justified: one invoice is already small, structured, and available in
 ```text
 One multipart file
     ↓
-Declared media type is application/pdf
+Declared media type is PDF, JPEG, or PNG
     ↓
 Read at most 5 MiB + 1 byte
     ↓
 Reject empty or oversized content
     ↓
-Verify %PDF- signature
+Verify matching PDF/JPEG/PNG signature
     ↓
-Pass validated bytes to PDF extraction
+Pass validated bytes and normalized media type to the workflow
 ```
 
-The 5 MiB limit is intentionally small for a public portfolio MVP. Checking both the declared media type and the leading PDF signature catches simple mismatches without pretending to fully validate or parse the document. Uploaded content is not persisted.
+The 5 MiB limit is intentionally small for a public portfolio MVP. Checking both the declared media type and leading signature catches simple mismatches without pretending to fully validate or parse the document. Decoded image and scanned-page checks happen in the image-processing layer. Uploaded content is not persisted.
 
 ## Current PDF Text Extraction Boundary
 
@@ -58,16 +75,16 @@ Trim page text and join readable pages in order
 Return page count and combined text
 ```
 
-`pypdf` was selected as the smallest suitable dependency for in-memory, page-by-page text extraction. Malformed or unreadable PDFs produce an application-level extraction error. A readable PDF with no embedded text produces a distinct no-text error explaining that OCR is not supported.
+`pypdf` remains the smallest suitable dependency for in-memory, page-by-page text extraction. Malformed or unreadable PDFs produce an application-level extraction error. A readable PDF with no embedded text produces a distinct internal signal that the workflow uses to enter the vision fallback.
 
 This layer does not infer fields, reconstruct tables, perform OCR, or prove that extracted text matches visual reading order. Complex layouts and unusually large decompressed page content remain known parser limitations to evaluate with representative invoices and before public hardening.
 
 ## Current LLM and Schema Boundary
 
 ```text
-Extracted document text
+Extracted document text or normalized page images
     ↓
-InvoiceExtractor application interface
+InvoiceExtractor or VisionInvoiceExtractor application interface
     ↓
 OpenAI Responses API + Structured Outputs
     ↓

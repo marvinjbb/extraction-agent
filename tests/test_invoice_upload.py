@@ -1,8 +1,10 @@
 from datetime import date
 from decimal import Decimal
+from io import BytesIO
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.llm_extraction import (
     InvalidLLMOutputError,
@@ -10,6 +12,7 @@ from app.llm_extraction import (
     LLMProviderError,
     LLMTimeoutError,
     get_invoice_extractor,
+    get_vision_invoice_extractor,
 )
 from app.main import app
 from app.schemas import Invoice, LineItem
@@ -23,6 +26,7 @@ class FakeInvoiceExtractor:
     def __init__(self, error: Exception | None = None) -> None:
         self.error = error
         self.received_text: str | None = None
+        self.received_images = None
 
     async def extract(self, document_text: str) -> Invoice:
         self.received_text = document_text
@@ -46,11 +50,16 @@ class FakeInvoiceExtractor:
             ],
         )
 
+    async def extract_images(self, images) -> Invoice:
+        self.received_images = images
+        return await self.extract("vision input")
+
 
 @pytest.fixture(autouse=True)
 def use_fake_invoice_extractor() -> FakeInvoiceExtractor:
     extractor = FakeInvoiceExtractor()
     app.dependency_overrides[get_invoice_extractor] = lambda: extractor
+    app.dependency_overrides[get_vision_invoice_extractor] = lambda: extractor
     yield extractor
     app.dependency_overrides.clear()
 
@@ -125,7 +134,9 @@ def test_non_pdf_is_rejected() -> None:
     )
 
     assert response.status_code == 415
-    assert response.json() == {"detail": "Only PDF files are supported."}
+    assert response.json() == {
+        "detail": "Only PDF, JPG, JPEG, and PNG invoice files are supported."
+    }
 
 
 def test_empty_pdf_is_rejected() -> None:
@@ -135,7 +146,7 @@ def test_empty_pdf_is_rejected() -> None:
     )
 
     assert response.status_code == 400
-    assert response.json() == {"detail": "The uploaded PDF is empty."}
+    assert response.json() == {"detail": "The uploaded invoice file is empty."}
 
 
 def test_oversized_pdf_is_rejected() -> None:
@@ -148,7 +159,7 @@ def test_oversized_pdf_is_rejected() -> None:
 
     assert response.status_code == 413
     assert response.json() == {
-        "detail": "The uploaded PDF exceeds the 5 MiB size limit."
+        "detail": "The uploaded invoice file exceeds the 5 MiB size limit."
     }
 
 
@@ -160,7 +171,7 @@ def test_file_with_pdf_media_type_but_invalid_signature_is_rejected() -> None:
 
     assert response.status_code == 415
     assert response.json() == {
-        "detail": "The uploaded file does not have a valid PDF signature."
+        "detail": "The uploaded file content does not match its declared format."
     }
 
 
@@ -180,14 +191,69 @@ def test_malformed_pdf_is_rejected_after_upload_validation() -> None:
     assert response.json() == {"detail": "The uploaded PDF could not be read."}
 
 
-def test_pdf_without_text_is_rejected_after_upload_validation() -> None:
+def test_pdf_without_text_uses_vision_fallback(
+    use_fake_invoice_extractor: FakeInvoiceExtractor,
+) -> None:
     response = client.post(
         "/extractions/invoice",
         files={"file": ("invoice.pdf", build_pdf(None), "application/pdf")},
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 200
+    assert use_fake_invoice_extractor.received_images is not None
+    assert len(use_fake_invoice_extractor.received_images) == 1
+
+
+@pytest.mark.parametrize(
+    ("filename", "content_type", "image_format"),
+    [
+        ("invoice.jpg", "image/jpeg", "JPEG"),
+        ("invoice.jpeg", "image/jpeg", "JPEG"),
+        ("invoice.png", "image/png", "PNG"),
+    ],
+)
+def test_supported_image_uses_vision_extraction(
+    filename: str,
+    content_type: str,
+    image_format: str,
+    use_fake_invoice_extractor: FakeInvoiceExtractor,
+) -> None:
+    image = Image.new("RGB", (600, 800), "white")
+    content = BytesIO()
+    image.save(content, format=image_format)
+
+    response = client.post(
+        "/extractions/invoice",
+        files={"file": (filename, content.getvalue(), content_type)},
+    )
+
+    assert response.status_code == 200
+    assert use_fake_invoice_extractor.received_images is not None
+    assert len(use_fake_invoice_extractor.received_images) == 1
+    assert use_fake_invoice_extractor.received_images[0].media_type == "image/jpeg"
+
+
+def test_image_with_mismatched_declared_format_is_rejected() -> None:
+    image = Image.new("RGB", (20, 20), "white")
+    content = BytesIO()
+    image.save(content, format="PNG")
+
+    response = client.post(
+        "/extractions/invoice",
+        files={"file": ("invoice.jpg", content.getvalue(), "image/jpeg")},
+    )
+
+    assert response.status_code == 415
     assert response.json() == {
-        "detail": "The uploaded PDF contains no extractable text. "
-        "OCR is not supported."
+        "detail": "The uploaded file content does not match its declared format."
     }
+
+
+def test_unreadable_image_is_rejected_cleanly() -> None:
+    response = client.post(
+        "/extractions/invoice",
+        files={"file": ("invoice.jpg", b"\xff\xd8\xffnot-an-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "The uploaded image could not be read."}

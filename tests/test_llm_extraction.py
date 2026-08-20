@@ -7,6 +7,7 @@ import pytest
 from openai import APIConnectionError, APITimeoutError
 from pydantic import ValidationError
 
+from app.image_processing import InvoiceImage
 from app.llm_extraction import (
     InvalidLLMOutputError,
     LLMConfigurationError,
@@ -45,6 +46,28 @@ def test_openai_adapter_returns_validated_invoice() -> None:
     call = client.responses.parse.await_args
     assert call.kwargs["model"] == "test-model"
     assert call.kwargs["text_format"] is Invoice
+
+
+def test_openai_adapter_sends_images_as_multimodal_input() -> None:
+    client = build_client(
+        {
+            "vendor": "Vision Vendor",
+            "line_items": [],
+            "warnings": [],
+        }
+    )
+    extractor = OpenAIInvoiceExtractor(client=client, model="test-model")
+
+    invoice = asyncio.run(
+        extractor.extract_images([InvoiceImage(content=b"jpeg-bytes")])
+    )
+
+    assert invoice.vendor == "Vision Vendor"
+    user_content = client.responses.parse.await_args.kwargs["input"][1]["content"]
+    assert user_content[0]["type"] == "input_text"
+    assert user_content[1]["type"] == "input_image"
+    assert user_content[1]["image_url"].startswith("data:image/jpeg;base64,")
+    assert user_content[1]["detail"] == "high"
 
 
 def test_openai_adapter_rejects_missing_structured_output() -> None:

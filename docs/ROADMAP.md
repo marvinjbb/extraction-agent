@@ -4,11 +4,11 @@ This is the living progress tracker for the Extraction Agent. Update statuses an
 
 ## Current Focus
 
-**Phase 1F — Complete and verify the local MVP**
+**Platform Phase 3.6 — Image and scanned invoice support**
 
 **Status:** `COMPLETE`
 
-The complete local extraction pipeline and its important failure paths are verified. Phase 3.5 adds stateless questions grounded only in the validated invoice. Automated tests cannot spend API money, and controlled browser requests verify the approved local flows. Containerization and deployment remain later approved phases.
+The hybrid text-first and vision-fallback workflow supports text PDFs, scanned PDFs, JPG/JPEG, and PNG invoices while preserving one `Invoice` schema and the existing query workflow. Automated tests cannot spend API money. Containerization and deployment remain later approved phases.
 
 ## Foundation — Repository and project documentation
 
@@ -115,6 +115,12 @@ The `marvinjb.dev` demo submits one multipart `file` to this service through an 
 **Status:** `COMPLETE`
 
 The backend accepts a validated `Invoice` plus one bounded question, constructs the grounded provider request internally, and returns one answer. Questions are independent, automated tests use fakes, and no PDF, retrieval system, conversation database, or frontend provider configuration is introduced.
+
+## Platform Phase 3.6 — Image and scanned invoice support
+
+**Status:** `COMPLETE`
+
+Text PDFs retain the `pypdf` path. PDFs without embedded text fall back to bounded page rendering and vision extraction; JPG/JPEG and PNG uploads enter the same vision boundary after safe decoding and normalization. Every route ends at the existing `Invoice` Pydantic schema, and Ask This Invoice remains unchanged. Tests use fakes; one controlled provider verification covers the new vision path.
 
 ## Later platform phases
 

@@ -1,3 +1,4 @@
+import base64
 import os
 from typing import Protocol
 
@@ -5,6 +6,7 @@ from dotenv import load_dotenv
 from openai import APITimeoutError, AsyncOpenAI, OpenAIError
 from pydantic import ValidationError
 
+from app.image_processing import InvoiceImage
 from app.schemas import Invoice
 
 DEFAULT_MODEL = "gpt-5.4-nano"
@@ -16,6 +18,13 @@ class InvoiceExtractor(Protocol):
 
     async def extract(self, document_text: str) -> Invoice:
         """Return schema-valid invoice facts from document text."""
+
+
+class VisionInvoiceExtractor(Protocol):
+    """Application-owned boundary for structured extraction from page images."""
+
+    async def extract_images(self, images: list[InvoiceImage]) -> Invoice:
+        """Return schema-valid invoice facts from one or more images."""
 
 
 class LLMExtractionError(Exception):
@@ -55,6 +64,44 @@ class OpenAIInvoiceExtractor:
     async def extract(self, document_text: str) -> Invoice:
         client, model = self._configured_client()
 
+        return await self._parse(
+            client,
+            model,
+            [{"role": "user", "content": document_text}],
+        )
+
+    async def extract_images(self, images: list[InvoiceImage]) -> Invoice:
+        client, model = self._configured_client()
+        content: list[dict[str, str]] = [
+            {
+                "type": "input_text",
+                "text": "Extract the invoice facts visible in these page images.",
+            }
+        ]
+        content.extend(
+            {
+                "type": "input_image",
+                "image_url": (
+                    f"data:{image.media_type};base64,"
+                    f"{base64.b64encode(image.content).decode('ascii')}"
+                ),
+                "detail": "high",
+            }
+            for image in images
+        )
+        return await self._parse(
+            client,
+            model,
+            [{"role": "user", "content": content}],
+        )
+
+    async def _parse(
+        self,
+        client: AsyncOpenAI,
+        model: str,
+        user_input: list[dict[str, object]],
+    ) -> Invoice:
+
         try:
             response = await client.responses.parse(
                 model=model,
@@ -62,16 +109,16 @@ class OpenAIInvoiceExtractor:
                     {
                         "role": "developer",
                         "content": (
-                            "Extract invoice facts only from the supplied document "
-                            "text. Never invent missing values. Use null for missing "
-                            "scalar fields, an empty list when no line items are "
-                            "present, and warnings for ambiguous or uncertain facts. "
+                            "Extract invoice facts only from the supplied invoice "
+                            "content. Never invent missing values. Use null for "
+                            "missing scalar fields, an empty list when there are no "
+                            "line items. Add warnings for unclear facts. "
                             "Use a three-letter uppercase ISO currency code only when "
                             "the document supports it. Do not calculate values that "
                             "are not explicitly present."
                         ),
                     },
-                    {"role": "user", "content": document_text},
+                    *user_input,
                 ],
                 text_format=Invoice,
             )
@@ -135,4 +182,9 @@ def _read_timeout_seconds() -> float:
 
 def get_invoice_extractor() -> InvoiceExtractor:
     """Build the default provider adapter for FastAPI dependency injection."""
+    return OpenAIInvoiceExtractor()
+
+
+def get_vision_invoice_extractor() -> VisionInvoiceExtractor:
+    """Build the default vision-capable provider adapter."""
     return OpenAIInvoiceExtractor()

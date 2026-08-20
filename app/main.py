@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.extraction_workflow import InvoiceExtractionWorkflow
+from app.image_processing import ImageProcessingError
 from app.invoice_query import InvoiceQueryService, get_invoice_query_service
 from app.llm_extraction import (
     InvalidLLMOutputError,
@@ -12,15 +14,13 @@ from app.llm_extraction import (
     LLMConfigurationError,
     LLMProviderError,
     LLMTimeoutError,
+    VisionInvoiceExtractor,
     get_invoice_extractor,
+    get_vision_invoice_extractor,
 )
-from app.pdf_extraction import (
-    NoExtractableTextError,
-    PDFExtractionError,
-    extract_pdf_text,
-)
+from app.pdf_extraction import PDFExtractionError
 from app.schemas import Invoice, InvoiceQueryRequest, InvoiceQueryResponse
-from app.upload_validation import validate_invoice_pdf
+from app.upload_validation import validate_invoice_upload
 
 load_dotenv()
 
@@ -55,28 +55,27 @@ async def health() -> dict[str, str]:
 
 
 @app.post("/extractions/invoice", response_model=Invoice)
-async def accept_invoice_pdf(
-    file: Annotated[UploadFile, File(description="One text-based invoice PDF")],
+async def accept_invoice(
+    file: Annotated[
+        UploadFile, File(description="One PDF, JPG, JPEG, or PNG invoice")
+    ],
     extractor: Annotated[InvoiceExtractor, Depends(get_invoice_extractor)],
+    vision_extractor: Annotated[
+        VisionInvoiceExtractor, Depends(get_vision_invoice_extractor)
+    ],
 ) -> Invoice:
-    """Validate, parse, and extract structured facts from one invoice PDF."""
-    content = await validate_invoice_pdf(file)
+    """Validate and extract structured facts from one supported invoice file."""
+    upload = await validate_invoice_upload(file)
+    workflow = InvoiceExtractionWorkflow(extractor, vision_extractor)
 
     try:
-        extracted = extract_pdf_text(content)
-    except NoExtractableTextError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
-        ) from exc
-    except PDFExtractionError as exc:
+        return await workflow.extract(upload)
+    except (PDFExtractionError, ImageProcessingError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
 
-    try:
-        return await extractor.extract(extracted.text)
     except LLMConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

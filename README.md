@@ -4,7 +4,7 @@ A production-minded AI engineering portfolio project for extracting validated, s
 
 ## Current Status
 
-Phase 1 is complete locally. The narrow MVP validates one invoice PDF upload, extracts embedded text page by page, asks OpenAI for schema-constrained invoice facts, validates the result with the application-owned Pydantic model, and returns structured JSON. The separate `marvinjb.dev` demo is now connected to this API for local development. Automated tests replace the provider with fakes; controlled live requests have verified the complete browser-to-backend flow.
+Phase 3.6 extends the complete local MVP to text PDFs, scanned/image-only PDFs, JPG/JPEG, and PNG invoices. Readable PDFs retain the efficient `pypdf` text path; scanned PDFs and images use a bounded OpenAI vision path. Both routes return the same application-owned Pydantic `Invoice` model. The separate `marvinjb.dev` demo is connected to this API for local development. Automated tests replace the provider with fakes.
 
 Phase 3.5 adds stateless **Ask This Invoice** queries. `POST /extractions/invoice/query` accepts one question plus the existing `Invoice` JSON and returns `{"answer":"..."}`. It never receives the original PDF, previous messages, frontend prompts, provider settings, or credentials.
 
@@ -22,7 +22,7 @@ Initial fields:
 - Line items
 - Warnings or nullable fields for missing/uncertain data
 
-Image uploads, OCR, multiple document types, persistence, Docker, and deployment are intentionally outside the first MVP.
+The first MVP excluded image inputs; Phase 3.6 adds invoice images and scanned-PDF vision fallback without adding local OCR, persistence, Docker, or deployment.
 
 ## Platform Context
 
@@ -125,16 +125,17 @@ Confirms that the API process is available.
 
 ### `POST /extractions/invoice`
 
-Accepts one multipart upload in the `file` field. The current validation layer:
+Accepts one PDF, JPG/JPEG, or PNG multipart upload in the `file` field. The current validation layer:
 
-- Accepts only `application/pdf` uploads with a `%PDF-` file signature.
+- Accepts `application/pdf`, `image/jpeg`, and `image/png` with matching file signatures.
 - Rejects empty files.
 - Rejects files larger than 5 MiB (5,242,880 bytes).
-
-- Extracts embedded text with `pypdf`; it does not persist the PDF.
-- Rejects malformed PDFs and PDFs without extractable text.
-- Does not perform OCR.
-- Sends extracted text through an isolated OpenAI Structured Outputs adapter.
+- Limits decoded images to 20 megapixels and normalizes them to at most 2,000 pixels per side.
+- Limits scanned-PDF vision fallback to five rendered pages.
+- Extracts embedded PDF text with `pypdf` when available.
+- Renders image-only PDF pages with PyMuPDF and safely decodes images with Pillow.
+- Uses OpenAI vision only for scanned PDFs and image uploads; local OCR is not used.
+- Keeps text and vision provider calls behind isolated application interfaces.
 - Validates provider output against the `Invoice` Pydantic schema.
 
 A valid upload returns structured invoice JSON:
@@ -149,6 +150,13 @@ macOS/Linux:
 ```bash
 curl -X POST http://127.0.0.1:8000/extractions/invoice \
   -F "file=@/path/to/invoice.pdf;type=application/pdf"
+```
+
+For an image invoice, change the file path and media type, for example:
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/extractions/invoice `
+  -F "file=@C:\path\to\invoice.jpg;type=image/jpeg"
 ```
 
 ```json
@@ -203,7 +211,7 @@ Invoice facts are nullable because real documents can omit them. Missing collect
 
 ## LLM Boundary
 
-`app/llm_extraction.py` contains the provider-specific adapter. The FastAPI route depends on the application-owned `InvoiceExtractor` interface rather than OpenAI SDK calls directly. Provider timeouts return HTTP 504; provider and invalid structured-output failures return HTTP 502; missing server configuration returns HTTP 503. Error responses do not expose credentials or provider internals.
+`app/llm_extraction.py` contains the provider-specific adapter. The workflow depends on application-owned text and vision interfaces rather than OpenAI SDK calls in the route. Provider timeouts return HTTP 504; provider and invalid structured-output failures return HTTP 502; missing server configuration returns HTTP 503. Error responses do not expose credentials or provider internals.
 
 The current model default is `gpt-5.4-nano`, selected for this bounded, cost-sensitive data-extraction MVP. Model quality must be evaluated against representative invoices before public deployment.
 
@@ -213,17 +221,19 @@ Errors use FastAPI's `{"detail":"..."}` shape.
 
 | Status | Meaning |
 | --- | --- |
-| 400 | The uploaded PDF is empty. |
+| 400 | The uploaded invoice file is empty. |
 | 413 | The upload exceeds the 5 MiB limit. |
 | 415 | The declared type or file signature is not supported. |
-| 422 | The PDF is unreadable or has no extractable embedded text. |
+| 422 | The PDF/image is unreadable or exceeds decoded-image/page safety limits. |
 | 502 | The provider failed or returned invalid structured output. |
 | 503 | The server has no usable provider configuration. |
 | 504 | The provider exceeded its configured timeout. |
 
 ## Current Limitations
 
-- Only one text-based PDF is accepted per request; images and OCR are unsupported.
+- Only PDF, JPG/JPEG, and PNG invoices are supported, one file per request.
+- Scanned PDFs are limited to five pages; images are limited to 20 megapixels and normalized to 2,000 pixels per side.
+- Local OCR is not implemented; scanned content depends on the configured vision provider.
 - PDF text order can differ from visual layout, especially for complex tables.
 - Schema-valid output can still contain extraction mistakes or conservative omissions.
 - Ambiguous labels may be returned as null with warnings rather than inferred.
