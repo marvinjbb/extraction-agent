@@ -1,7 +1,8 @@
 import base64
 import os
+from dataclasses import asdict, dataclass
 from time import perf_counter
-from typing import Protocol
+from typing import Any, Protocol
 
 from dotenv import load_dotenv
 from openai import APITimeoutError, AsyncOpenAI, OpenAIError
@@ -13,6 +14,7 @@ from app.schemas import Invoice
 
 DEFAULT_MODEL = "gpt-5.4-nano"
 DEFAULT_TIMEOUT_SECONDS = 30.0
+INVOICE_MAX_OUTPUT_TOKENS = 4096
 INVOICE_EXTRACTION_INSTRUCTIONS = (
     "Extract invoice facts only from the supplied invoice content. Never invent "
     "missing values. Use null for missing scalar fields, an empty list when there "
@@ -61,6 +63,78 @@ class LLMProviderError(LLMExtractionError):
 
 class InvalidLLMOutputError(LLMExtractionError):
     """Raised when provider output does not satisfy the Invoice contract."""
+
+
+@dataclass(frozen=True)
+class ProviderResponseStructure:
+    """Content-free metadata describing one parsed provider response."""
+
+    response_type: str
+    status: str | None
+    output_count: int
+    output_item_types: tuple[str, ...]
+    content_item_types: tuple[str, ...]
+    parsed_present: bool
+    output_parsed_supported: bool
+    refusal_present: bool
+    incomplete_category: str | None
+    provider_request_id: str | None
+
+    def as_safe_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+def describe_provider_response(response: Any) -> ProviderResponseStructure:
+    """Return structural metadata without reading or exposing provider content."""
+    output = getattr(response, "output", None)
+    output_items = output if isinstance(output, list) else []
+    output_types: list[str] = []
+    content_types: list[str] = []
+    parsed_present = False
+    refusal_present = False
+
+    for item in output_items:
+        item_type = getattr(item, "type", None)
+        if isinstance(item_type, str):
+            output_types.append(item_type)
+        content = getattr(item, "content", None)
+        if not isinstance(content, list):
+            continue
+        for content_item in content:
+            content_type = getattr(content_item, "type", None)
+            if isinstance(content_type, str):
+                content_types.append(content_type)
+            if getattr(content_item, "parsed", None) is not None:
+                parsed_present = True
+            if content_type == "refusal":
+                refusal_present = True
+
+    output_parsed_supported = hasattr(type(response), "output_parsed") or hasattr(
+        response, "output_parsed"
+    )
+    if output_parsed_supported and getattr(response, "output_parsed", None) is not None:
+        parsed_present = True
+
+    incomplete_details = getattr(response, "incomplete_details", None)
+    incomplete_reason = getattr(incomplete_details, "reason", None)
+    provider_request_id = getattr(response, "_request_id", None)
+
+    return ProviderResponseStructure(
+        response_type=type(response).__name__,
+        status=_safe_string(getattr(response, "status", None)),
+        output_count=len(output_items),
+        output_item_types=tuple(output_types),
+        content_item_types=tuple(content_types),
+        parsed_present=parsed_present,
+        output_parsed_supported=output_parsed_supported,
+        refusal_present=refusal_present,
+        incomplete_category=_safe_string(incomplete_reason),
+        provider_request_id=_safe_string(provider_request_id),
+    )
+
+
+def _safe_string(value: object) -> str | None:
+    return value if isinstance(value, str) else None
 
 
 def _log_validation_failure(stage: str, error: ValidationError | TypeError) -> None:
@@ -158,6 +232,7 @@ class OpenAIInvoiceExtractor:
                     *user_input,
                 ],
                 text_format=Invoice,
+                max_output_tokens=INVOICE_MAX_OUTPUT_TOKENS,
             )
         except APITimeoutError as exc:
             _log_provider_call(
@@ -183,6 +258,31 @@ class OpenAIInvoiceExtractor:
             raise LLMProviderError(
                 "The invoice extraction provider could not complete the request."
             ) from exc
+
+        response_structure = describe_provider_response(response)
+        if response_structure.status == "incomplete":
+            _log_provider_call(
+                started,
+                model,
+                "failed",
+                "incomplete_response",
+                "invoice_extraction",
+            )
+            raise InvalidLLMOutputError(
+                "The invoice extraction provider returned an incomplete response."
+            )
+
+        if response_structure.refusal_present:
+            _log_provider_call(
+                started,
+                model,
+                "failed",
+                "provider_refusal",
+                "invoice_extraction",
+            )
+            raise InvalidLLMOutputError(
+                "The invoice extraction provider refused the structured request."
+            )
 
         if response.output_parsed is None:
             _log_provider_call(

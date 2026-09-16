@@ -5,16 +5,23 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from openai import APIConnectionError, APITimeoutError
+from openai.types.responses import (
+    ParsedResponse,
+    ParsedResponseOutputMessage,
+    ParsedResponseOutputText,
+)
 from pydantic import ValidationError
 
 from app.image_processing import InvoiceImage
 from app.llm_extraction import (
     INVOICE_EXTRACTION_INSTRUCTIONS,
+    INVOICE_MAX_OUTPUT_TOKENS,
     InvalidLLMOutputError,
     LLMConfigurationError,
     LLMProviderError,
     LLMTimeoutError,
     OpenAIInvoiceExtractor,
+    describe_provider_response,
 )
 from app.schemas import Invoice
 
@@ -51,6 +58,121 @@ def build_client(output: object) -> SimpleNamespace:
     return SimpleNamespace(responses=SimpleNamespace(parse=parse))
 
 
+def build_response_client(response: object) -> SimpleNamespace:
+    parse = AsyncMock(return_value=response)
+    return SimpleNamespace(responses=SimpleNamespace(parse=parse))
+
+
+def build_sdk_response(parsed: object) -> ParsedResponse[object]:
+    content = ParsedResponseOutputText[object].model_construct(
+        annotations=[],
+        text="content intentionally not inspected",
+        type="output_text",
+        parsed=parsed,
+    )
+    message = ParsedResponseOutputMessage[object].model_construct(
+        id="message-safe-id",
+        content=[content],
+        role="assistant",
+        status="completed",
+        type="message",
+    )
+    return ParsedResponse[object].model_construct(
+        id="response-safe-id",
+        output=[message],
+        status="completed",
+        incomplete_details=None,
+    )
+
+
+def test_provider_structure_describes_sdk_nested_parsed_invoice() -> None:
+    response = build_sdk_response(Invoice(vendor="private value"))
+
+    structure = describe_provider_response(response)
+
+    assert response.output_parsed == Invoice(vendor="private value")
+    assert structure.output_parsed_supported is True
+    assert structure.parsed_present is True
+    assert structure.output_item_types == ("message",)
+    assert structure.content_item_types == ("output_text",)
+    assert "private value" not in repr(structure)
+
+
+def test_provider_structure_supports_top_level_output_parsed() -> None:
+    response = SimpleNamespace(
+        output_parsed=Invoice(vendor="private value"),
+        output=[],
+        status="completed",
+        incomplete_details=None,
+    )
+
+    structure = describe_provider_response(response)
+
+    assert structure.output_parsed_supported is True
+    assert structure.parsed_present is True
+    assert "private value" not in repr(structure)
+
+
+def test_provider_structure_detects_refusal_without_exposing_text() -> None:
+    response = SimpleNamespace(
+        output_parsed=None,
+        output=[
+            SimpleNamespace(
+                type="message",
+                content=[SimpleNamespace(type="refusal", refusal="private refusal")],
+            )
+        ],
+        status="completed",
+        incomplete_details=None,
+    )
+
+    structure = describe_provider_response(response)
+
+    assert structure.refusal_present is True
+    assert structure.parsed_present is False
+    assert "private refusal" not in repr(structure)
+
+
+def test_provider_structure_detects_incomplete_response() -> None:
+    response = SimpleNamespace(
+        output_parsed=None,
+        output=[],
+        status="incomplete",
+        incomplete_details=SimpleNamespace(reason="max_output_tokens"),
+    )
+
+    structure = describe_provider_response(response)
+
+    assert structure.status == "incomplete"
+    assert structure.incomplete_category == "max_output_tokens"
+    assert structure.parsed_present is False
+
+
+def test_provider_structure_detects_completed_response_without_parsed_output() -> None:
+    response = SimpleNamespace(
+        output_parsed=None,
+        output=[SimpleNamespace(type="reasoning")],
+        status="completed",
+        incomplete_details=None,
+    )
+
+    structure = describe_provider_response(response)
+
+    assert structure.output_item_types == ("reasoning",)
+    assert structure.parsed_present is False
+
+
+def test_provider_structure_does_not_treat_malformed_parsed_value_as_validated() -> (
+    None
+):
+    response = build_sdk_response({"currency": "not-a-code"})
+    structure = describe_provider_response(response)
+
+    assert structure.parsed_present is True
+    with pytest.raises(ValidationError):
+        Invoice.model_validate(response.output_parsed)
+
+
 def test_openai_adapter_returns_validated_invoice() -> None:
     client = build_client(
         {
@@ -74,7 +196,49 @@ def test_openai_adapter_returns_validated_invoice() -> None:
     call = client.responses.parse.await_args
     assert call.kwargs["model"] == "test-model"
     assert call.kwargs["text_format"] is Invoice
+    assert call.kwargs["max_output_tokens"] == INVOICE_MAX_OUTPUT_TOKENS
     assert call.kwargs["input"][0]["content"] == INVOICE_EXTRACTION_INSTRUCTIONS
+
+
+def test_openai_adapter_accepts_sdk_nested_parsed_invoice() -> None:
+    expected = Invoice(vendor="Acme Supplies")
+    client = build_response_client(build_sdk_response(expected))
+    extractor = OpenAIInvoiceExtractor(client=client, model="test-model")
+
+    invoice = asyncio.run(extractor.extract("synthetic invoice"))
+
+    assert invoice == expected
+
+
+def test_openai_adapter_rejects_provider_refusal() -> None:
+    response = SimpleNamespace(
+        output_parsed=None,
+        output=[
+            SimpleNamespace(
+                type="message",
+                content=[SimpleNamespace(type="refusal", refusal="private refusal")],
+            )
+        ],
+        status="completed",
+        incomplete_details=None,
+    )
+    extractor = OpenAIInvoiceExtractor(client=build_response_client(response))
+
+    with pytest.raises(InvalidLLMOutputError, match="refused"):
+        asyncio.run(extractor.extract("private invoice"))
+
+
+def test_openai_adapter_rejects_incomplete_max_output_tokens_response() -> None:
+    response = SimpleNamespace(
+        output_parsed=None,
+        output=[],
+        status="incomplete",
+        incomplete_details=SimpleNamespace(reason="max_output_tokens"),
+    )
+    extractor = OpenAIInvoiceExtractor(client=build_response_client(response))
+
+    with pytest.raises(InvalidLLMOutputError, match="incomplete response"):
+        asyncio.run(extractor.extract("private invoice"))
 
 
 def test_openai_adapter_sends_images_as_multimodal_input() -> None:

@@ -41,6 +41,18 @@ path, while local OCR remains unnecessary until requirements justify it.
 The provider can target a schema, but Pydantic remains the application authority.
 Schema validity still does not establish factual correctness.
 
+## Reasoning and visible output share one response budget
+
+The dependency-lock packaging release passed offline checks but its first real
+provider smoke test returned an incomplete Responses API result with
+`max_output_tokens` as the reason, no output items, and no parsed invoice. Strict
+validation failed closed and the deployment automatically rolled back. Both the
+known-good and candidate images used the same OpenAI SDK, so this was not a parsed
+field-location or dependency-version break. The adapter now provides an explicit
+bounded output budget, distinguishes incomplete responses and refusals, and has
+regression coverage for the SDK's nested parsed-response structure. It still accepts
+only Structured Outputs followed by application-owned `Invoice` validation.
+
 ## Validation logs must not leak rejected values
 
 Useful diagnostics need only the validation stage, field path, and error type. Raw
