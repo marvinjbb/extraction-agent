@@ -281,3 +281,23 @@ This is a living ADR log. Append future architectural decisions rather than sile
 **Tradeoffs:** The telemetry intentionally lacks content-level debugging context, has no external aggregation/tracing backend, and does not replace metrics or distributed traces.
 
 **When we should reconsider it:** Add metrics, traces, or an external sink only when operational needs justify the cost and privacy review. Expand fields only through an explicit safe-data decision.
+
+---
+
+## ADR-016 — Separate provider decimal strings from domain Decimal values
+
+**Decision ID:** ADR-016
+
+**Status:** ACCEPTED
+
+**Classification:** STANDARD
+
+**Context:** Controlled raw-HTTPS bisection showed that the Pydantic-generated JSON Schema for a single `Decimal` field caused `gpt-5.4-nano` Structured Outputs to return `incomplete`, `max_output_tokens`, zero output, and zero usage. The same request completed when the field used `number|null`. The domain still requires exact base-10 financial values and must not use floats.
+
+**Decision:** Send a separate strict `ProviderInvoice` schema to OpenAI. Represent its six monetary and quantity values as nullable, patterned plain-decimal strings. Convert them with `decimal.Decimal` at an application-owned boundary, reject malformed and non-finite values without normalization, and validate the resulting candidate with the authoritative domain `Invoice` model.
+
+**Why:** Provider-facing compatibility and domain semantics are different concerns. The boundary avoids the problematic generated Decimal union while retaining exact Decimal behavior, complete line items, strict Structured Outputs, and fail-closed final validation.
+
+**Tradeoffs:** The service maintains two closely related models and explicit conversion code. Tests must ensure their semantic fields do not drift and must inspect the schema actually serialized by the OpenAI SDK.
+
+**When we should reconsider it:** Reconsider the provider DTO only after a verified provider/SDK change supports the domain Decimal schema reliably. Preserve the explicit conversion boundary unless an alternative proves equally strict and observable.

@@ -48,7 +48,9 @@ flowchart TD
     I --> X
     P --> O[OpenAI Responses Structured Outputs]
     X --> O
-    O --> S[Application-owned Invoice schema]
+    O --> PS[ProviderInvoice decimal strings]
+    PS --> C[Deterministic Decimal conversion]
+    C --> S[Domain Invoice schema]
     S --> D[Pydantic validation]
     D --> J[Structured JSON response]
 
@@ -70,7 +72,8 @@ text. Vision is the fallback for pixels; pypdf is not OCR. See
 - A 5 MiB application read boundary and supported PDF/JPEG/PNG declarations.
 - Matching leading signatures, parser/decoder checks, and image/page limits.
 - Text-versus-vision routing.
-- The application-owned Structured Output shape and Pydantic types.
+- An application-owned provider DTO with plain decimal strings, followed by
+  deterministic `Decimal` conversion and the authoritative domain `Invoice` schema.
 - Three-letter uppercase currency codes, valid dates, finite decimals, required
   line-item descriptions, and forbidden unknown fields.
 - Explicit HTTP error mapping and application-generated request IDs.

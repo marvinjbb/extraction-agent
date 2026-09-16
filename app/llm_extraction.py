@@ -10,6 +10,11 @@ from pydantic import ValidationError
 
 from app.image_processing import InvoiceImage
 from app.observability import log_event
+from app.provider_schemas import (
+    ProviderInvoice,
+    ProviderInvoiceConversionError,
+    provider_invoice_to_domain,
+)
 from app.schemas import Invoice
 
 DEFAULT_MODEL = "gpt-5.4-nano"
@@ -28,6 +33,8 @@ INVOICE_EXTRACTION_INSTRUCTIONS = (
     "formats such as MM/DD/YY, DD/MM/YYYY, or DD-MMM-YYYY directly into "
     "invoice_date. Use a three-letter uppercase ISO currency code only when the "
     "document supports it. Do not calculate values that are not explicitly present."
+    " Return monetary values and quantities as plain decimal strings without "
+    "currency symbols or thousands separators."
 )
 
 
@@ -137,7 +144,10 @@ def _safe_string(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _log_validation_failure(stage: str, error: ValidationError | TypeError) -> None:
+def _log_validation_failure(
+    stage: str,
+    error: ValidationError | TypeError | ProviderInvoiceConversionError,
+) -> None:
     """Log schema diagnostics without rejected values or provider content."""
     if isinstance(error, ValidationError):
         for detail in error.errors(
@@ -162,7 +172,7 @@ def _log_validation_failure(stage: str, error: ValidationError | TypeError) -> N
         outcome="failed",
         stage=stage,
         field="<root>",
-        error_type="type_error",
+        error_type=type(error).__name__,
     )
 
 
@@ -231,7 +241,7 @@ class OpenAIInvoiceExtractor:
                     },
                     *user_input,
                 ],
-                text_format=Invoice,
+                text_format=ProviderInvoice,
                 max_output_tokens=INVOICE_MAX_OUTPUT_TOKENS,
             )
         except APITimeoutError as exc:
@@ -267,6 +277,7 @@ class OpenAIInvoiceExtractor:
                 "failed",
                 "incomplete_response",
                 "invoice_extraction",
+                response_structure=response_structure,
             )
             raise InvalidLLMOutputError(
                 "The invoice extraction provider returned an incomplete response."
@@ -279,6 +290,7 @@ class OpenAIInvoiceExtractor:
                 "failed",
                 "provider_refusal",
                 "invoice_extraction",
+                response_structure=response_structure,
             )
             raise InvalidLLMOutputError(
                 "The invoice extraction provider refused the structured request."
@@ -291,13 +303,14 @@ class OpenAIInvoiceExtractor:
                 "failed",
                 "missing_structured_output",
                 "invoice_extraction",
+                response_structure=response_structure,
             )
             raise InvalidLLMOutputError(
                 "The invoice extraction provider returned no structured result."
             )
 
         try:
-            invoice = Invoice.model_validate(response.output_parsed)
+            provider_invoice = ProviderInvoice.model_validate(response.output_parsed)
         except (TypeError, ValidationError) as exc:
             _log_provider_call(
                 started,
@@ -306,11 +319,39 @@ class OpenAIInvoiceExtractor:
                 "invalid_structured_output",
                 "invoice_extraction",
             )
-            _log_validation_failure("Invoice.model_validate", exc)
+            _log_validation_failure("ProviderInvoice.model_validate", exc)
             raise InvalidLLMOutputError(
                 "The invoice extraction provider returned an invalid structured result."
             ) from exc
-        _log_provider_call(started, model, "success", None, "invoice_extraction")
+
+        try:
+            invoice = provider_invoice_to_domain(provider_invoice)
+        except ProviderInvoiceConversionError as exc:
+            _log_provider_call(
+                started,
+                model,
+                "failed",
+                "invalid_structured_output",
+                "invoice_extraction",
+                response_structure=response_structure,
+                conversion_success=False,
+                domain_validation_success=False,
+            )
+            _log_validation_failure("provider_invoice_to_domain", exc)
+            raise InvalidLLMOutputError(
+                "The invoice extraction provider returned an invalid structured result."
+            ) from exc
+
+        _log_provider_call(
+            started,
+            model,
+            "success",
+            None,
+            "invoice_extraction",
+            response_structure=response_structure,
+            conversion_success=True,
+            domain_validation_success=True,
+        )
         return invoice
 
     def _configured_client(self) -> tuple[AsyncOpenAI, str]:
@@ -326,7 +367,11 @@ class OpenAIInvoiceExtractor:
 
         model = self._model or os.getenv("OPENAI_MODEL", DEFAULT_MODEL)
         timeout_seconds = self._timeout_seconds or _read_timeout_seconds()
-        return AsyncOpenAI(api_key=api_key, timeout=timeout_seconds), model
+        return AsyncOpenAI(
+            api_key=api_key,
+            timeout=timeout_seconds,
+            max_retries=0,
+        ), model
 
 
 def _read_timeout_seconds() -> float:
@@ -352,6 +397,10 @@ def _log_provider_call(
     outcome: str,
     error_category: str | None,
     operation: str,
+    *,
+    response_structure: ProviderResponseStructure | None = None,
+    conversion_success: bool | None = None,
+    domain_validation_success: bool | None = None,
 ) -> None:
     log_event(
         "provider_call_completed",
@@ -361,6 +410,15 @@ def _log_provider_call(
         outcome=outcome,
         error_category=error_category,
         duration_ms=round((perf_counter() - started) * 1000, 2),
+        provider_request_id=(
+            response_structure.provider_request_id if response_structure else None
+        ),
+        response_status=response_structure.status if response_structure else None,
+        parsed_present=(
+            response_structure.parsed_present if response_structure else None
+        ),
+        conversion_success=conversion_success,
+        domain_validation_success=domain_validation_success,
     )
 
 

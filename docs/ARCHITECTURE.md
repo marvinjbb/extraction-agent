@@ -74,7 +74,10 @@ application-owned protocols. OpenAI SDK calls live only in their adapters, so ro
 tests use fakes and provider replacement remains localized.
 
 The extraction adapter uses the Responses API with native Structured Outputs based
-on `Invoice`. Pydantic then validates the result locally. The contract:
+on `ProviderInvoice`. Its monetary and quantity values are constrained plain decimal
+strings. Application code converts those strings with `decimal.Decimal`, then the
+authoritative domain `Invoice` validates the complete result. This separates provider
+schema compatibility from domain precision. The domain contract:
 
 - forbids unknown fields;
 - represents monetary/quantity values as finite `Decimal` values;

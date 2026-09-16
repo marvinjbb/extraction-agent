@@ -11,6 +11,8 @@ _REQUEST_ID = ContextVar[str | None]("extraction_request_id", default=None)
 _SAFE_FIELDS = frozenset(
     {
         "component",
+        "conversion_success",
+        "domain_validation_success",
         "duration_ms",
         "error_category",
         "error_type",
@@ -20,8 +22,11 @@ _SAFE_FIELDS = frozenset(
         "method",
         "model",
         "outcome",
+        "parsed_present",
         "path",
         "provider_operation",
+        "provider_request_id",
+        "response_status",
         "size_bucket",
         "stage",
         "status_code",

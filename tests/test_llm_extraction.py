@@ -1,10 +1,11 @@
 import asyncio
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from openai import APIConnectionError, APITimeoutError
+from openai import APIConnectionError, APITimeoutError, AsyncOpenAI
 from openai.types.responses import (
     ParsedResponse,
     ParsedResponseOutputMessage,
@@ -23,6 +24,7 @@ from app.llm_extraction import (
     OpenAIInvoiceExtractor,
     describe_provider_response,
 )
+from app.provider_schemas import ProviderInvoice, ProviderLineItem
 from app.schemas import Invoice
 
 
@@ -83,6 +85,97 @@ def build_sdk_response(parsed: object) -> ParsedResponse[object]:
         status="completed",
         incomplete_details=None,
     )
+
+
+def incomplete_response_body() -> dict[str, object]:
+    return {
+        "id": "response-safe-id",
+        "object": "response",
+        "created_at": 0,
+        "status": "incomplete",
+        "error": None,
+        "incomplete_details": {"reason": "max_output_tokens"},
+        "instructions": None,
+        "max_output_tokens": INVOICE_MAX_OUTPUT_TOKENS,
+        "model": "test-model",
+        "output": [],
+        "parallel_tool_calls": True,
+        "previous_response_id": None,
+        "reasoning": {"effort": None, "summary": None},
+        "store": False,
+        "temperature": 1.0,
+        "text": {"format": {"type": "text"}},
+        "tool_choice": "auto",
+        "tools": [],
+        "top_p": 1.0,
+        "truncation": "disabled",
+        "usage": {
+            "input_tokens": 1,
+            "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens": 0,
+            "output_tokens_details": {"reasoning_tokens": 0},
+            "total_tokens": 1,
+        },
+    }
+
+
+def test_real_sdk_request_uses_full_lookaround_free_provider_schema() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json=incomplete_response_body())
+
+    async def exercise_request() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler)
+        ) as http_client:
+            client = AsyncOpenAI(
+                api_key="test-key",
+                base_url="https://provider.invalid/v1",
+                http_client=http_client,
+            )
+            extractor = OpenAIInvoiceExtractor(client=client, model="test-model")
+            with pytest.raises(InvalidLLMOutputError, match="incomplete response"):
+                await extractor.extract("synthetic invoice")
+
+    asyncio.run(exercise_request())
+
+    assert captured["model"] == "test-model"
+    assert captured["max_output_tokens"] == INVOICE_MAX_OUTPUT_TOKENS
+    output_format = captured["text"]["format"]  # type: ignore[index]
+    assert output_format["type"] == "json_schema"
+    assert output_format["name"] == "ProviderInvoice"
+    assert output_format["strict"] is True
+    schema = output_format["schema"]
+    assert list(schema["properties"]) == [
+        "vendor",
+        "invoice_number",
+        "invoice_date",
+        "currency",
+        "subtotal",
+        "tax",
+        "total",
+        "line_items",
+        "warnings",
+    ]
+    assert schema["required"] == list(schema["properties"])
+    assert schema["additionalProperties"] is False
+    line_item = schema["$defs"]["ProviderLineItem"]
+    assert line_item["additionalProperties"] is False
+
+    decimal_schemas = [
+        schema["properties"][name] for name in ("subtotal", "tax", "total")
+    ] + [line_item["properties"][name] for name in ("quantity", "unit_price", "amount")]
+    for decimal_schema in decimal_schemas:
+        branches = decimal_schema["anyOf"]
+        assert [branch["type"] for branch in branches] == ["string", "null"]
+        assert branches[0]["pattern"] == r"^-?[0-9]+(\.[0-9]+)?$"
+        serialized = json.dumps(decimal_schema)
+        assert "^(?!^[-+.]*$)" not in serialized
+        assert "(?!" not in serialized
+        assert "(?=" not in serialized
+        assert "(?<" not in serialized
 
 
 def test_provider_structure_describes_sdk_nested_parsed_invoice() -> None:
@@ -193,21 +286,33 @@ def test_openai_adapter_returns_validated_invoice() -> None:
 
     assert isinstance(invoice, Invoice)
     assert invoice.vendor == "Acme Supplies"
+    assert str(invoice.total) == "108.25"
     call = client.responses.parse.await_args
     assert call.kwargs["model"] == "test-model"
-    assert call.kwargs["text_format"] is Invoice
+    assert call.kwargs["text_format"] is ProviderInvoice
     assert call.kwargs["max_output_tokens"] == INVOICE_MAX_OUTPUT_TOKENS
     assert call.kwargs["input"][0]["content"] == INVOICE_EXTRACTION_INSTRUCTIONS
 
 
 def test_openai_adapter_accepts_sdk_nested_parsed_invoice() -> None:
-    expected = Invoice(vendor="Acme Supplies")
-    client = build_response_client(build_sdk_response(expected))
+    provider_invoice = ProviderInvoice(
+        vendor="Acme Supplies",
+        subtotal="12.50",
+        line_items=[
+            ProviderLineItem(
+                description="Service",
+                quantity="1",
+                unit_price="12.50",
+                amount="12.50",
+            )
+        ],
+    )
+    client = build_response_client(build_sdk_response(provider_invoice))
     extractor = OpenAIInvoiceExtractor(client=client, model="test-model")
 
     invoice = asyncio.run(extractor.extract("synthetic invoice"))
 
-    assert invoice == expected
+    assert invoice == Invoice.model_validate(provider_invoice.model_dump())
 
 
 def test_openai_adapter_rejects_provider_refusal() -> None:
@@ -290,7 +395,7 @@ def test_final_validation_failure_logs_safe_field_diagnostics(
         for event, fields in events
         if event == "structured_output_validation_failed"
     )
-    assert validation["stage"] == "Invoice.model_validate"
+    assert validation["stage"] == "ProviderInvoice.model_validate"
     assert validation["field"] == "currency"
     assert validation["error_type"] == "string_pattern_mismatch"
     assert "secret-rejected-value" not in repr(events)
@@ -343,6 +448,19 @@ def test_openai_adapter_rejects_missing_api_key(
 
     with pytest.raises(LLMConfigurationError, match="not configured"):
         asyncio.run(extractor.extract("invoice text"))
+
+
+def test_configured_extraction_client_disables_provider_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr("app.llm_extraction.load_dotenv", lambda: None)
+
+    client, model = OpenAIInvoiceExtractor()._configured_client()
+
+    assert model
+    assert client.max_retries == 0
+    asyncio.run(client.close())
 
 
 def test_openai_adapter_maps_timeout() -> None:

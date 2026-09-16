@@ -41,17 +41,34 @@ path, while local OCR remains unnecessary until requirements justify it.
 The provider can target a schema, but Pydantic remains the application authority.
 Schema validity still does not establish factual correctness.
 
-## Reasoning and visible output share one response budget
+## Provider schemas and domain schemas have different jobs
 
-The dependency-lock packaging release passed offline checks but its first real
-provider smoke test returned an incomplete Responses API result with
-`max_output_tokens` as the reason, no output items, and no parsed invoice. Strict
-validation failed closed and the deployment automatically rolled back. Both the
-known-good and candidate images used the same OpenAI SDK, so this was not a parsed
-field-location or dependency-version break. The adapter now provides an explicit
-bounded output budget, distinguishes incomplete responses and refusals, and has
-regression coverage for the SDK's nested parsed-response structure. It still accepts
-only Structured Outputs followed by application-owned `Invoice` validation.
+The dependency-lock release passed offline checks, but its provider smoke test
+returned `status=incomplete`, `reason=max_output_tokens`, `output=[]`, and zero
+reported usage. That looked like a generation-budget problem, but controlled
+isolation showed otherwise:
+
+- the preserved production image and new candidate both reproduced it;
+- raw HTTPS reproduced it while plain Responses completed;
+- a trivial strict Structured Outputs schema completed;
+- the complete Invoice schema failed;
+- removing `line_items` did not fix it;
+- metadata-only fields completed;
+- adding one production `Decimal` field reproduced the failure; and
+- changing only that field to `number|null` completed.
+
+The evidence establishes a provider-incompatible or problematic LLM-facing Decimal
+JSON Schema representation; it does not establish OpenAI's internal cause. Pydantic
+generated `number|string|null`, with a lookahead-based pattern on the string branch,
+for every Decimal field.
+
+The fix separates contracts. OpenAI receives `ProviderInvoice`, whose monetary and
+quantity fields are strict plain-decimal strings. Application code converts them
+with `decimal.Decimal`, rejects malformed/non-finite input without cleanup, and then
+validates the result with the authoritative domain `Invoice`. Incomplete responses,
+refusals, missing parsed output, conversion failures, and final validation failures
+all remain fail-closed. The bounded output budget remains useful, but it was not the
+root-cause fix.
 
 ## Validation logs must not leak rejected values
 
