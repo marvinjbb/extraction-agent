@@ -1,193 +1,94 @@
 # Extraction Agent
 
-A production-minded AI engineering portfolio project for extracting validated, structured invoice data from uploaded documents.
+An invoice-extraction service that turns PDFs and images into validated,
+application-owned JSON. The system combines bounded document processing, text-first
+routing, OpenAI Structured Outputs, and final Pydantic validation behind a FastAPI
+API.
 
-## Current Status
+- **Live demo:** <https://marvinjb.dev/demo/extraction>
+- **Public production service:** <https://api.marvinjb.dev>
+- **Runtime:** Python 3.12, FastAPI, OpenAI Responses API, Pydantic, pypdf,
+  PyMuPDF, Pillow, Docker
 
-Phase 3.6 extends the complete local MVP to text PDFs, scanned/image-only PDFs, JPG/JPEG, and PNG invoices. Readable PDFs retain the efficient `pypdf` text path; scanned PDFs and images use a bounded OpenAI vision path. Both routes return the same application-owned Pydantic `Invoice` model. The separate `marvinjb.dev` demo is connected to this API for local development. Automated tests replace the provider with fakes.
+## What the system does
 
-Phase 3.5 adds stateless **Ask This Invoice** queries. `POST /extractions/invoice/query` accepts one question plus the existing `Invoice` JSON and returns `{"answer":"..."}`. It never receives the original PDF, previous messages, frontend prompts, provider settings, or credentials.
+Users upload one synthetic/sample invoice as a PDF, JPEG, or PNG. Readable PDFs
+stay on an embedded-text path; image invoices and scanned PDFs use bounded vision
+processing. Both paths return the same strict `Invoice` response with nullable
+source facts, exact decimal amounts, line items, and warnings. A second endpoint
+answers one question using only a previously validated invoice JSON object.
 
-Phase 4 packages the unchanged backend as a non-root Docker container based on Python 3.12 slim. The image contains runtime dependencies only, exposes port 8000, reads configuration at container start, and includes a lightweight `/health` check. VPS deployment has not started.
+This is more than "send a file to an LLM": the application owns the upload
+limits, media/signature checks, decoded-image and page bounds, routing, output
+schema, final validation, error mapping, and privacy-safe telemetry.
 
-## Approved MVP
+## End-to-end workflow
 
-The first local MVP will accept one text-based invoice PDF, extract its text, use an LLM to produce structured invoice fields, validate the output, and return JSON.
+1. FastAPI accepts one multipart `file` and reads at most 5 MiB plus one byte.
+2. The application checks declared media type, file signature, and non-empty size.
+3. Text PDFs are parsed with pypdf.
+4. PDFs without embedded text are rendered with PyMuPDF, at most five pages.
+5. JPEG/PNG uploads are decoded with Pillow; images are limited to 20 megapixels
+   and normalized to at most 2,000 pixels per side.
+6. The OpenAI adapter requests the application-owned `Invoice` structure.
+7. Pydantic validates the returned value again and rejects unknown fields.
+8. FastAPI returns JSON or a bounded, mapped error response.
 
-Initial fields:
+## Architecture
 
-- Vendor
-- Invoice number
-- Invoice date
-- Currency
-- Subtotal, tax, and total when present
-- Line items
-- Warnings or nullable fields for missing/uncertain data
+```mermaid
+flowchart TD
+    U[User uploads one invoice] --> API[FastAPI]
+    API --> V[Bounded upload validation]
+    V --> R{Document routing}
+    R -->|PDF with embedded text| P[pypdf text extraction]
+    R -->|Scanned PDF| M[PyMuPDF: max 5 pages]
+    R -->|JPEG or PNG| I[Pillow decode and normalize]
+    M --> X[Normalized page images]
+    I --> X
+    P --> O[OpenAI Responses Structured Outputs]
+    X --> O
+    O --> S[Application-owned Invoice schema]
+    S --> D[Pydantic validation]
+    D --> J[Structured JSON response]
 
-The first MVP excluded image inputs; Phase 3.6 adds invoice images and scanned-PDF vision fallback without adding local OCR, persistence, Docker, or deployment.
+    Q[Validated invoice JSON + question] --> QA[OpenAI query adapter]
+    QA --> A[Plain-text grounded answer]
 
-## Platform Context
-
-The future React interface will live in the separate `marvinjb.dev` portfolio repository at `marvinjb.dev/demo/extraction`. This repository will provide the backend API. In production, the portfolio will call an extraction route under `https://api.marvinjb.dev`, which will be routed through Nginx to this service's Docker container on the shared Ubuntu VPS.
-
-## Documentation
-
-- `AGENTS.md` — Governing project instructions and scope.
-- `docs/ARCHITECTURE.md` — Current and target technical architecture.
-- `docs/ROADMAP.md` — Living phased implementation tracker.
-- `docs/DECISIONS.md` — Architecture Decision Record log.
-
-Setup, API, testing, deployment, security, and observability instructions will be added as those capabilities are actually designed and implemented.
-
-## Local Development
-
-Requirements:
-
-- Git
-- Python 3.12 or newer
-
-Clone the repository:
-
-```powershell
-git clone https://github.com/marvinjbb/extraction-agent.git
-cd extraction-agent
+    C["APPLICATION CONTROLS<br/>limits, routing, schema, validation, errors"] -.-> V
+    G["MODEL PROVIDES<br/>invoice values or query answer"] -.-> O
 ```
 
-Create and activate a virtual environment.
+The text-first path avoids vision cost and latency when a PDF already has useful
+text. Vision is the fallback for pixels; pypdf is not OCR. See
+[Architecture](docs/ARCHITECTURE.md) for the component and deployment boundaries.
 
-PowerShell:
+## Structured output and trust boundary
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
+### The application enforces
 
-macOS/Linux:
+- A 5 MiB application read boundary and supported PDF/JPEG/PNG declarations.
+- Matching leading signatures, parser/decoder checks, and image/page limits.
+- Text-versus-vision routing.
+- The application-owned Structured Output shape and Pydantic types.
+- Three-letter uppercase currency codes, valid dates, finite decimals, required
+  line-item descriptions, and forbidden unknown fields.
+- Explicit HTTP error mapping and application-generated request IDs.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
+### The application does not prove
 
-Install the application and development dependencies:
+- That every extracted value is factually correct or complete.
+- That totals reconcile or line-item arithmetic is correct.
+- That every missing or ambiguous value receives a warning.
+- Semantic accuracy, source-coordinate citations, or hallucination-free output.
 
-```powershell
-python -m pip install -e ".[dev]"
-```
+Schema validity is necessary for reliable API integration; it is not an accuracy
+score. The service intentionally does not invent a numeric confidence value.
 
-Create local configuration from the safe example.
+## Synthetic input/output example
 
-PowerShell:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-macOS/Linux:
-
-```bash
-cp .env.example .env
-```
-
-Open `.env` locally and set `OPENAI_API_KEY`. Do not paste a real key into `.env.example`, source code, terminal history, issues, or commits. `.env` is ignored by Git. Optional `OPENAI_MODEL` and `OPENAI_TIMEOUT_SECONDS` settings default to `gpt-5.4-nano` and 30 seconds. `FRONTEND_ORIGINS` is a comma-separated CORS allowlist and defaults to the two local port-3000 origins shown in `.env.example`.
-
-Start the local API:
-
-```powershell
-python -m uvicorn app.main:app --reload
-```
-
-In another terminal, verify health:
-
-```powershell
-curl.exe http://127.0.0.1:8000/health
-```
-
-On macOS/Linux, use `curl` instead of `curl.exe`. The expected response is:
-
-```json
-{"status":"ok"}
-```
-
-Run the checks:
-
-```powershell
-python -m ruff check .
-python -m pytest
-python -m pip check
-```
-
-Tests use dependency-injected fakes and do not require `OPENAI_API_KEY` or call the real OpenAI API.
-
-## Docker
-
-Docker packages the Python runtime, application code, and exact build-time dependencies into an image. A container is a running instance of that image. This removes laptop-specific Python setup from the deployment boundary: the same tested image can later run on the Ubuntu VPS.
-
-Build the image:
-
-```powershell
-docker build --tag extraction-agent:phase4 .
-```
-
-Run it with the existing ignored backend environment file:
-
-```powershell
-docker run --detach --name extraction-agent --env-file .env --publish 8000:8000 extraction-agent:phase4
-```
-
-`--publish 8000:8000` maps host port 8000 to the container's port 8000. Uvicorn listens on `0.0.0.0` inside the container so Docker can forward traffic to it. `--env-file .env` supplies `OPENAI_API_KEY`, model, timeout, and CORS settings at runtime; `.env` is excluded from the build context and never becomes an image layer.
-
-Verify and stop the local container:
-
-```powershell
-curl.exe http://127.0.0.1:8000/health
-docker stop extraction-agent
-docker rm extraction-agent
-```
-
-Pillow and PyMuPDF install from Linux wheels on the pinned Debian-based Python image and require no additional operating-system packages for the current JPEG, PNG, and PDF workflows. Re-evaluate this if a future platform lacks compatible wheels or new document features require external binaries.
-
-## Current API
-
-### `GET /health`
-
-Confirms that the API process is available.
-
-### `POST /extractions/invoice`
-
-Accepts one PDF, JPG/JPEG, or PNG multipart upload in the `file` field. The current validation layer:
-
-- Accepts `application/pdf`, `image/jpeg`, and `image/png` with matching file signatures.
-- Rejects empty files.
-- Rejects files larger than 5 MiB (5,242,880 bytes).
-- Limits decoded images to 20 megapixels and normalizes them to at most 2,000 pixels per side.
-- Limits scanned-PDF vision fallback to five rendered pages.
-- Extracts embedded PDF text with `pypdf` when available.
-- Renders image-only PDF pages with PyMuPDF and safely decodes images with Pillow.
-- Uses OpenAI vision only for scanned PDFs and image uploads; local OCR is not used.
-- Keeps text and vision provider calls behind isolated application interfaces.
-- Validates provider output against the `Invoice` Pydantic schema.
-
-A valid upload returns structured invoice JSON:
-
-```powershell
-curl.exe -X POST http://127.0.0.1:8000/extractions/invoice `
-  -F "file=@C:\path\to\invoice.pdf;type=application/pdf"
-```
-
-macOS/Linux:
-
-```bash
-curl -X POST http://127.0.0.1:8000/extractions/invoice \
-  -F "file=@/path/to/invoice.pdf;type=application/pdf"
-```
-
-For an image invoice, change the file path and media type, for example:
-
-```powershell
-curl.exe -X POST http://127.0.0.1:8000/extractions/invoice `
-  -F "file=@C:\path\to\invoice.jpg;type=image/jpeg"
-```
+Given a clearly synthetic invoice containing `Acme Supplies`, invoice `INV-1001`,
+and a total of `108.25 USD`, a representative response is:
 
 ```json
 {
@@ -203,70 +104,146 @@ curl.exe -X POST http://127.0.0.1:8000/extractions/invoice `
 }
 ```
 
-### `POST /extractions/invoice/query`
+The example documents the contract; it is not a measured production result.
 
-Accepts JSON containing `question` and an `invoice` that must satisfy the existing `Invoice` schema. Questions are trimmed, must be non-empty, and may contain at most 500 characters. Each request is independent and returns one concise grounded answer.
+## File safety and privacy
 
-```json
-{
-  "question": "What is the total?",
-  "invoice": {
-    "vendor": "Acme Supplies",
-    "invoice_number": "INV-1001",
-    "invoice_date": "2026-08-20",
-    "currency": "USD",
-    "subtotal": "100.00",
-    "tax": "8.25",
-    "total": "108.25",
-    "line_items": [],
-    "warnings": []
-  }
-}
+Uploads are processed within one request and the application does not intentionally
+persist documents or extraction history. Multipart handling may use framework or
+operating-system temporary spooling. The following data crosses the provider
+boundary:
+
+- **Text PDF:** extracted document text is sent to OpenAI.
+- **Scanned PDF or image:** normalized images/pages are sent to OpenAI.
+- **Invoice query:** validated invoice JSON and the user's question are sent to
+  OpenAI.
+
+Do not upload sensitive documents unless organizational and provider policy permits
+it. Prefer synthetic/sample invoices for this public portfolio demo. The repository
+makes no claim about provider retention policy.
+
+## Evaluation and testing
+
+The offline suite uses fakes and makes no paid provider calls. It covers upload
+safety, PDF/image processing, text/vision routing, schema behavior, provider failure
+mapping, the API, CORS, request IDs, and privacy-safe logs. It includes encrypted
+and empty PDFs, malformed documents, multi-frame images, decoded-pixel limits,
+normalization, and scanned-PDF page limits.
+
+There is **no scored extraction-accuracy benchmark**. No precision, recall,
+exact-match, field-accuracy, or hallucination-rate claim is made. A meaningful
+quality benchmark requires a sanitized/synthetic labeled invoice set. See
+[Evaluation](docs/EVALUATION.md).
+
+## Deployment
+
+The backend is deployed behind `api.marvinjb.dev`; the portfolio UI is hosted at
+`marvinjb.dev`. The production artifact is a digest-pinned, multi-stage Python 3.12
+image running as a non-root user. Uvicorn listens on container port 8000 and Docker
+checks `GET /health`. Secrets enter only at runtime.
+
+The repository does not contain VPS credentials, Nginx configuration, or a claimed
+automated deployment system. See [Deployment](docs/DEPLOYMENT.md) for the verified
+container boundary and conservative release procedure.
+
+## API overview
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Process health check |
+| `POST` | `/extractions/invoice` | Extract one multipart invoice |
+| `POST` | `/extractions/invoice/query` | Ask one question about validated invoice JSON |
+
+Swagger UI, ReDoc, and OpenAPI remain enabled at FastAPI's default paths. Full
+requests, schemas, and error mappings are in [API documentation](docs/API.md).
+
+## Local development
+
+Requirements: Git, Python 3.12, and optionally Docker.
+
+```bash
+git clone https://github.com/marvinjbb/extraction-agent.git
+cd extraction-agent
+python -m venv .venv
 ```
 
-The validated invoice is already the complete small context, so this endpoint uses direct grounding rather than RAG, embeddings, or a vector database.
+Activate the environment (`.venv\Scripts\Activate.ps1` on PowerShell or
+`source .venv/bin/activate` on macOS/Linux), then install the reproducible set:
 
-## Invoice Schema
+```bash
+python -m pip install --constraint requirements.lock -e ".[dev]"
+```
 
-`app/schemas.py` defines the extraction result independently from the provider.
+Copy `.env.example` to the ignored `.env`, provide `OPENAI_API_KEY` only for real
+provider use, and start the API:
 
-An invoice can contain:
+```bash
+python -m uvicorn app.main:app --reload
+```
 
-- Vendor, invoice number, invoice date, and three-letter uppercase currency code.
-- Subtotal, tax, and total as exact decimal values.
-- Line items with a required description and optional quantity, unit price, and amount.
-- Warnings describing missing or uncertain source information.
+Normal tests do not need a key:
 
-Invoice facts are nullable because real documents can omit them. Missing collections default to empty lists. Unknown fields and invalid values are rejected, and no placeholder values are generated.
+```bash
+pytest
+ruff check .
+ruff format --check .
+python -m pip check
+```
 
-## LLM Boundary
+To update dependencies, deliberately update compatible ranges in `pyproject.toml`,
+resolve/test the environment, regenerate exact versions in `requirements.lock`, and
+run the complete verification matrix before review.
 
-`app/llm_extraction.py` contains the provider-specific adapter. The workflow depends on application-owned text and vision interfaces rather than OpenAI SDK calls in the route. Provider timeouts return HTTP 504; provider and invalid structured-output failures return HTTP 502; missing server configuration returns HTTP 503. Error responses do not expose credentials or provider internals.
+## Docker
 
-The current model default is `gpt-5.4-nano`, selected for this bounded, cost-sensitive data-extraction MVP. Model quality must be evaluated against representative invoices before public deployment.
+```bash
+docker build --tag extraction-agent:local .
+docker run --rm --env-file .env --publish 8000:8000 extraction-agent:local
+```
 
-## Error Responses
+The image installs the same locked runtime dependency set used by CI. The key is a
+runtime environment value, not a build argument or image layer.
 
-Errors use FastAPI's `{"detail":"..."}` shape.
+## Observability
 
-| Status | Meaning |
-| --- | --- |
-| 400 | The uploaded invoice file is empty. |
-| 413 | The upload exceeds the 5 MiB limit. |
-| 415 | The declared type or file signature is not supported. |
-| 422 | The PDF/image is unreadable or exceeds decoded-image/page safety limits. |
-| 502 | The provider failed or returned invalid structured output. |
-| 503 | The server has no usable provider configuration. |
-| 504 | The provider exceeded its configured timeout. |
+The service emits allowlisted JSON events for request completion, safe upload
+categories, selected extraction path, provider duration/outcome, and safe failure
+categories. Each response has an application-generated `X-Request-ID`; caller IDs
+are not trusted. Logs intentionally exclude document contents, extracted fields,
+filenames, questions, prompts, raw provider responses, image data, cookies, sensitive
+headers, and credentials.
 
-## Current Limitations
+## Known limitations
 
-- Only PDF, JPG/JPEG, and PNG invoices are supported, one file per request.
-- Scanned PDFs are limited to five pages; images are limited to 20 megapixels and normalized to 2,000 pixels per side.
-- Local OCR is not implemented; scanned content depends on the configured vision provider.
-- PDF text order can differ from visual layout, especially for complex tables.
-- Schema-valid output can still contain extraction mistakes or conservative omissions.
-- Ambiguous labels may be returned as null with warnings rather than inferred.
-- Files are processed ephemerally; there is no history, persistence, or retry queue.
-- The image is built locally but has not been published to a registry or deployed to a VPS.
-- The local MVP has no authentication, public-demo rate limiting, Nginx, or production deployment configuration yet.
+- Invoice-only schema; one file per request; no batch or async queue.
+- No local OCR; image/scanned-PDF extraction requires provider vision.
+- Scanned PDFs are limited to five pages; files to a 5 MiB application read limit;
+  images to 20 megapixels and 2,000 pixels per side after normalization.
+- Mixed-content PDFs with any extractable text stay on the text path.
+- PDF text order can differ from visual layout.
+- No page/coordinate citations, arithmetic reconciliation, human review, history,
+  persistence, authentication, or application-level rate limiting.
+- OpenAPI/Swagger are currently public and require a separate hardening review.
+- No formal accuracy benchmark; schema validity is not factual correctness.
+- Availability, latency, privacy, and quality depend partly on the provider.
+- Endpoint-level reading does not reject an oversized multipart body before the
+  framework parses it; ingress/body-size enforcement is still important.
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Evaluation](docs/EVALUATION.md)
+- [API](docs/API.md)
+- [Deployment](docs/DEPLOYMENT.md)
+- [Lessons learned](docs/LESSONS_LEARNED.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Architecture decisions](docs/DECISIONS.md)
+- [Security](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)
+
+## Lessons learned
+
+The central lesson is that reliable extraction comes from explicit boundaries:
+parsing is separate from inference, provider output is not trusted merely because
+it is structured, and file support expands the safety surface. The concise project
+history is in [Lessons learned](docs/LESSONS_LEARNED.md).

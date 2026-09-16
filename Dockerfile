@@ -3,10 +3,10 @@ FROM python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa70
 
 WORKDIR /build
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml requirements.lock README.md ./
 COPY app ./app
 
-RUN python -m pip wheel --no-cache-dir --wheel-dir /wheels .
+RUN python -m pip wheel --no-cache-dir --constraint requirements.lock --wheel-dir /wheels .
 
 
 FROM python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a AS runtime

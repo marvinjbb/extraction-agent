@@ -23,7 +23,7 @@ This is a living ADR log. Append future architectural decisions rather than sile
 ## ADR-002 — Start with text-based invoice PDFs only
 
 **Decision ID:** ADR-002  
-**Status:** ACCEPTED  
+**Status:** SUPERSEDED by ADR-013
 **Classification:** CUSTOM
 
 **Context:** Supporting scans, images, OCR, and many document types would combine multiple uncertain problems before the basic workflow is proven.
@@ -198,7 +198,7 @@ This is a living ADR log. Append future architectural decisions rather than sile
 
 **Why:** This grants the minimum browser access needed for the current multipart upload while keeping deployment-specific origins outside application code and leaving `OPENAI_API_KEY` exclusively on the backend.
 
-**Tradeoffs:** Every frontend environment must be added explicitly, and an incorrect origin appears to users as a network failure. The policy must be revisited before public deployment.
+**Tradeoffs:** Every frontend environment must be added explicitly, and an incorrect origin appears to users as a network failure. Production configuration therefore requires an explicit reviewed origin list.
 
 **When we should reconsider it:** Reconsider when the production portfolio origin is connected, if authentication introduces credentialed requests, or if a same-origin proxy removes the browser cross-origin boundary.
 
@@ -252,12 +252,32 @@ This is a living ADR log. Append future architectural decisions rather than sile
 
 **Classification:** STANDARD
 
-**Context:** The working backend must move from a developer-specific Python environment to the later Ubuntu VPS without changing its application behavior or placing development tools and secrets in the runtime artifact.
+**Context:** The working backend needs a portable deployment unit without changing its application behavior or placing development tools and secrets in the runtime artifact.
 
 **Decision:** Build with a digest-pinned Python 3.12 slim base in two stages. Build the application and runtime dependency wheels in the first stage; install only those wheels in the runtime stage. Run Uvicorn as a non-root user on `0.0.0.0:8000`, inject configuration at container start, exclude secret and development files from the build context, and use `/health` for the Docker health check.
 
 **Why:** The design matches the project's Python requirement, reduces the final image and attack surface, creates a repeatable deployment unit, preserves backend-only secrets, and verifies real HTTP readiness without adding a utility package solely for health checks.
 
-**Tradeoffs:** The image is still about 126 MB because PyMuPDF and Pillow contain native document/image libraries. Digest pinning requires deliberate base-image updates, and application dependency versions remain resolved at build time until a lock strategy is introduced. One Uvicorn process is appropriate for the current portfolio workload but is not an automatic high-availability design.
+**Tradeoffs:** PyMuPDF and Pillow contain native document/image libraries, so the image is larger than a text-only FastAPI service. Digest and dependency pinning require deliberate updates. One Uvicorn process is appropriate for the current portfolio workload but is not an automatic high-availability design.
 
-**When we should reconsider it:** Reconsider the base digest during security/runtime updates, add dependency locking when reproducibility requires it, and reconsider process count or image architecture after measured VPS load and memory limits are known. Add operating-system packages only if a supported platform lacks compatible wheels or future document capabilities require external binaries.
+**When we should reconsider it:** Reconsider the base digest and `requirements.lock` during reviewed security/runtime updates, and reconsider process count or image architecture after measured VPS load and memory limits are known. Add operating-system packages only if a supported platform lacks compatible wheels or future document capabilities require external binaries.
+
+---
+
+## ADR-015 — Use allowlisted JSON telemetry and application-owned request IDs
+
+**Decision ID:** ADR-015
+
+**Status:** ACCEPTED
+
+**Classification:** STANDARD
+
+**Context:** The deployed service needs request correlation, latency/outcome data, and diagnosable routing/provider failures without placing private invoices or questions into logs.
+
+**Decision:** Generate a new opaque request ID for each request, return it in `X-Request-ID`, and emit structured JSON through a field allowlist. Record route/status/duration, coarse upload metadata, selected extraction path, provider outcome/duration, and safe failure categories. Never treat a caller-supplied ID as authoritative and never log document contents, extracted values, filenames, questions, prompts, raw provider responses, image data, credentials, cookies, or sensitive headers.
+
+**Why:** Application-owned correlation supports debugging across the HTTP and provider boundaries while an allowlist makes privacy the default rather than relying on developers to redact arbitrary objects.
+
+**Tradeoffs:** The telemetry intentionally lacks content-level debugging context, has no external aggregation/tracing backend, and does not replace metrics or distributed traces.
+
+**When we should reconsider it:** Add metrics, traces, or an external sink only when operational needs justify the cost and privacy review. Expand fields only through an explicit safe-data decision.

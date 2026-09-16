@@ -1,0 +1,9 @@
+title = "Extraction Agent gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Documented empty provider placeholder"
+paths = ['''^\.env\.example$''']
+regexes = ['''OPENAI_API_KEY=$''']

@@ -16,10 +16,18 @@ def test_local_frontend_origin_can_post_invoice() -> None:
     )
 
     assert response.status_code == 200
-    assert response.headers["access-control-allow-origin"] == (
-        "http://localhost:3000"
-    )
+    assert response.headers["access-control-allow-origin"] == ("http://localhost:3000")
     assert "POST" in response.headers["access-control-allow-methods"]
+
+
+def test_request_id_is_exposed_to_approved_browser_origin() -> None:
+    response = client.get(
+        "/health",
+        headers={"Origin": "http://localhost:3000"},
+    )
+
+    assert response.status_code == 200
+    assert "X-Request-ID" in response.headers["access-control-expose-headers"]
 
 
 def test_unapproved_origin_receives_no_cors_permission() -> None:

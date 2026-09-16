@@ -1,5 +1,6 @@
 import json
 import os
+from time import perf_counter
 from typing import Protocol
 
 from dotenv import load_dotenv
@@ -13,6 +14,7 @@ from app.llm_extraction import (
     LLMTimeoutError,
     _read_timeout_seconds,
 )
+from app.observability import log_event
 from app.schemas import Invoice
 
 INVOICE_QUERY_INSTRUCTIONS = (
@@ -51,28 +53,32 @@ class OpenAIInvoiceQueryService:
         invoice_json = json.dumps(
             invoice.model_dump(mode="json"), separators=(",", ":")
         )
+        started = perf_counter()
 
         try:
             response = await client.responses.create(
                 model=model,
                 instructions=INVOICE_QUERY_INSTRUCTIONS,
                 input=(
-                    f"Validated invoice JSON:\n{invoice_json}\n\n"
-                    f"Question:\n{question}"
+                    f"Validated invoice JSON:\n{invoice_json}\n\nQuestion:\n{question}"
                 ),
             )
         except APITimeoutError as exc:
+            _log_provider_call(started, model, "timeout", "provider_timeout")
             raise LLMTimeoutError("The invoice query provider timed out.") from exc
         except OpenAIError as exc:
+            _log_provider_call(started, model, "failed", "provider_error")
             raise LLMProviderError(
                 "The invoice query provider could not complete the request."
             ) from exc
 
         answer = getattr(response, "output_text", None)
         if not isinstance(answer, str) or not answer.strip():
+            _log_provider_call(started, model, "failed", "invalid_provider_answer")
             raise InvalidLLMOutputError(
                 "The invoice query provider returned an invalid answer."
             )
+        _log_provider_call(started, model, "success", None)
         return answer.strip()
 
     def _configured_client(self) -> tuple[AsyncOpenAI, str]:
@@ -94,3 +100,20 @@ class OpenAIInvoiceQueryService:
 def get_invoice_query_service() -> InvoiceQueryService:
     """Build the default provider adapter for FastAPI dependency injection."""
     return OpenAIInvoiceQueryService()
+
+
+def _log_provider_call(
+    started: float,
+    model: str,
+    outcome: str,
+    error_category: str | None,
+) -> None:
+    log_event(
+        "provider_call_completed",
+        component="openai",
+        provider_operation="invoice_query",
+        model=model,
+        outcome=outcome,
+        error_category=error_category,
+        duration_ms=round((perf_counter() - started) * 1000, 2),
+    )

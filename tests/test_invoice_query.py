@@ -173,6 +173,4 @@ def test_openai_query_rejects_malformed_answer() -> None:
     service = OpenAIInvoiceQueryService(client=build_openai_client(None))
 
     with pytest.raises(InvalidLLMOutputError):
-        asyncio.run(
-            service.answer("Total?", Invoice.model_validate(INVOICE_PAYLOAD))
-        )
+        asyncio.run(service.answer("Total?", Invoice.model_validate(INVOICE_PAYLOAD)))

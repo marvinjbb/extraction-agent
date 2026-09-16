@@ -1,6 +1,6 @@
 import base64
-import logging
 import os
+from time import perf_counter
 from typing import Protocol
 
 from dotenv import load_dotenv
@@ -8,6 +8,7 @@ from openai import APITimeoutError, AsyncOpenAI, OpenAIError
 from pydantic import ValidationError
 
 from app.image_processing import InvoiceImage
+from app.observability import log_event
 from app.schemas import Invoice
 
 DEFAULT_MODEL = "gpt-5.4-nano"
@@ -26,7 +27,6 @@ INVOICE_EXTRACTION_INSTRUCTIONS = (
     "invoice_date. Use a three-letter uppercase ISO currency code only when the "
     "document supports it. Do not calculate values that are not explicitly present."
 )
-logger = logging.getLogger(__name__)
 
 
 class InvoiceExtractor(Protocol):
@@ -63,9 +63,7 @@ class InvalidLLMOutputError(LLMExtractionError):
     """Raised when provider output does not satisfy the Invoice contract."""
 
 
-def _log_validation_failure(
-    stage: str, error: ValidationError | TypeError
-) -> None:
+def _log_validation_failure(stage: str, error: ValidationError | TypeError) -> None:
     """Log schema diagnostics without rejected values or provider content."""
     if isinstance(error, ValidationError):
         for detail in error.errors(
@@ -74,21 +72,23 @@ def _log_validation_failure(
             include_input=False,
         ):
             field = ".".join(str(part) for part in detail["loc"]) or "<root>"
-            logger.warning(
-                "Invoice structured-output validation failed "
-                "stage=%s field=%s error_type=%s reason=%s",
-                stage,
-                field,
-                detail["type"],
-                detail["msg"],
+            log_event(
+                "structured_output_validation_failed",
+                component="invoice_extraction",
+                outcome="failed",
+                stage=stage,
+                field=field,
+                error_type=detail["type"],
             )
         return
 
-    logger.warning(
-        "Invoice structured-output validation failed "
-        "stage=%s field=<root> error_type=type_error "
-        "reason=Result could not be validated as an Invoice",
-        stage,
+    log_event(
+        "structured_output_validation_failed",
+        component="invoice_extraction",
+        outcome="failed",
+        stage=stage,
+        field="<root>",
+        error_type="type_error",
     )
 
 
@@ -146,7 +146,7 @@ class OpenAIInvoiceExtractor:
         model: str,
         user_input: list[dict[str, object]],
     ) -> Invoice:
-
+        started = perf_counter()
         try:
             response = await client.responses.parse(
                 model=model,
@@ -160,29 +160,58 @@ class OpenAIInvoiceExtractor:
                 text_format=Invoice,
             )
         except APITimeoutError as exc:
+            _log_provider_call(
+                started, model, "timeout", "provider_timeout", "invoice_extraction"
+            )
             raise LLMTimeoutError("The invoice extraction provider timed out.") from exc
         except ValidationError as exc:
+            _log_provider_call(
+                started,
+                model,
+                "failed",
+                "invalid_structured_output",
+                "invoice_extraction",
+            )
             _log_validation_failure("responses.parse", exc)
             raise InvalidLLMOutputError(
                 "The invoice extraction provider returned an invalid structured result."
             ) from exc
         except OpenAIError as exc:
+            _log_provider_call(
+                started, model, "failed", "provider_error", "invoice_extraction"
+            )
             raise LLMProviderError(
                 "The invoice extraction provider could not complete the request."
             ) from exc
 
         if response.output_parsed is None:
+            _log_provider_call(
+                started,
+                model,
+                "failed",
+                "missing_structured_output",
+                "invoice_extraction",
+            )
             raise InvalidLLMOutputError(
                 "The invoice extraction provider returned no structured result."
             )
 
         try:
-            return Invoice.model_validate(response.output_parsed)
+            invoice = Invoice.model_validate(response.output_parsed)
         except (TypeError, ValidationError) as exc:
+            _log_provider_call(
+                started,
+                model,
+                "failed",
+                "invalid_structured_output",
+                "invoice_extraction",
+            )
             _log_validation_failure("Invoice.model_validate", exc)
             raise InvalidLLMOutputError(
                 "The invoice extraction provider returned an invalid structured result."
             ) from exc
+        _log_provider_call(started, model, "success", None, "invoice_extraction")
+        return invoice
 
     def _configured_client(self) -> tuple[AsyncOpenAI, str]:
         if self._client is not None:
@@ -213,10 +242,26 @@ def _read_timeout_seconds() -> float:
         ) from exc
 
     if timeout <= 0:
-        raise LLMConfigurationError(
-            "OPENAI_TIMEOUT_SECONDS must be a positive number."
-        )
+        raise LLMConfigurationError("OPENAI_TIMEOUT_SECONDS must be a positive number.")
     return timeout
+
+
+def _log_provider_call(
+    started: float,
+    model: str,
+    outcome: str,
+    error_category: str | None,
+    operation: str,
+) -> None:
+    log_event(
+        "provider_call_completed",
+        component="openai",
+        provider_operation=operation,
+        model=model,
+        outcome=outcome,
+        error_category=error_category,
+        duration_ms=round((perf_counter() - started) * 1000, 2),
+    )
 
 
 def get_invoice_extractor() -> InvoiceExtractor:

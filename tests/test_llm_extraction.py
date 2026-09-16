@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -40,13 +39,10 @@ def test_date_normalization_instruction_regressions(
 
 
 def test_date_instructions_forbid_copying_receipt_formats() -> None:
-    assert "Return invoice_date only as YYYY-MM-DD" in (
-        INVOICE_EXTRACTION_INSTRUCTIONS
-    )
+    assert "Return invoice_date only as YYYY-MM-DD" in (INVOICE_EXTRACTION_INSTRUCTIONS)
     assert (
         "Never copy receipt date formats such as MM/DD/YY, DD/MM/YYYY, or "
-        "DD-MMM-YYYY directly into invoice_date"
-        in INVOICE_EXTRACTION_INSTRUCTIONS
+        "DD-MMM-YYYY directly into invoice_date" in INVOICE_EXTRACTION_INSTRUCTIONS
     )
 
 
@@ -111,27 +107,40 @@ def test_openai_adapter_rejects_missing_structured_output() -> None:
 
 
 def test_final_validation_failure_logs_safe_field_diagnostics(
-    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    events: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setattr(
+        "app.llm_extraction.log_event",
+        lambda event, **fields: events.append((event, fields)),
+    )
     extractor = OpenAIInvoiceExtractor(
         client=build_client({"currency": "secret-rejected-value"})
     )
 
-    with caplog.at_level(logging.WARNING, logger="app.llm_extraction"):
-        with pytest.raises(InvalidLLMOutputError, match="invalid structured result"):
-            asyncio.run(extractor.extract("private invoice contents"))
+    with pytest.raises(InvalidLLMOutputError, match="invalid structured result"):
+        asyncio.run(extractor.extract("private invoice contents"))
 
-    assert "stage=Invoice.model_validate" in caplog.text
-    assert "field=currency" in caplog.text
-    assert "error_type=string_pattern_mismatch" in caplog.text
-    assert "reason=String should match pattern" in caplog.text
-    assert "secret-rejected-value" not in caplog.text
-    assert "private invoice contents" not in caplog.text
+    validation = next(
+        fields
+        for event, fields in events
+        if event == "structured_output_validation_failed"
+    )
+    assert validation["stage"] == "Invoice.model_validate"
+    assert validation["field"] == "currency"
+    assert validation["error_type"] == "string_pattern_mismatch"
+    assert "secret-rejected-value" not in repr(events)
+    assert "private invoice contents" not in repr(events)
 
 
 def test_responses_parse_failure_logs_safe_field_diagnostics(
-    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    events: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setattr(
+        "app.llm_extraction.log_event",
+        lambda event, **fields: events.append((event, fields)),
+    )
     client = build_client(None)
     client.responses.parse.side_effect = ValidationError.from_exception_data(
         "Invoice",
@@ -146,16 +155,19 @@ def test_responses_parse_failure_logs_safe_field_diagnostics(
     )
     extractor = OpenAIInvoiceExtractor(client=client)
 
-    with caplog.at_level(logging.WARNING, logger="app.llm_extraction"):
-        with pytest.raises(InvalidLLMOutputError, match="invalid structured result"):
-            asyncio.run(extractor.extract("private provider document"))
+    with pytest.raises(InvalidLLMOutputError, match="invalid structured result"):
+        asyncio.run(extractor.extract("private provider document"))
 
-    assert "stage=responses.parse" in caplog.text
-    assert "field=currency" in caplog.text
-    assert "error_type=string_pattern_mismatch" in caplog.text
-    assert "reason=String should match pattern" in caplog.text
-    assert "secret-provider-value" not in caplog.text
-    assert "private provider document" not in caplog.text
+    validation = next(
+        fields
+        for event, fields in events
+        if event == "structured_output_validation_failed"
+    )
+    assert validation["stage"] == "responses.parse"
+    assert validation["field"] == "currency"
+    assert validation["error_type"] == "string_pattern_mismatch"
+    assert "secret-provider-value" not in repr(events)
+    assert "private provider document" not in repr(events)
 
 
 def test_openai_adapter_rejects_missing_api_key(

@@ -1,4 +1,7 @@
+from io import BytesIO
+
 import pytest
+from pypdf import PdfWriter
 
 from app.pdf_extraction import (
     NoExtractableTextError,
@@ -30,3 +33,14 @@ def test_malformed_pdf_is_rejected_cleanly() -> None:
 def test_pdf_without_extractable_text_is_rejected_clearly() -> None:
     with pytest.raises(NoExtractableTextError, match="no extractable text"):
         extract_pdf_text(build_pdf(None))
+
+
+def test_password_protected_pdf_is_rejected() -> None:
+    output = BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    writer.encrypt("demo-password")
+    writer.write(output)
+
+    with pytest.raises(PDFExtractionError, match="Password-protected"):
+        extract_pdf_text(output.getvalue())
